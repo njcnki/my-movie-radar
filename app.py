@@ -91,12 +91,10 @@ def clean_filename_hardcore(filename):
     # 3. 将点、下划线、中划线统一变成空格，方便正则定位
     clean_name = clean_name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
     
-    # 4. 剔除残余的常见物理视频扩展名字串
-    for ext in ['mkv', 'mp4', 'avi', 'iso', 'm2ts']:
-        if clean_name.lower().endswith(ext):
-            clean_name = clean_name[:-len(ext)].strip()
-
-    # 5. 精准正则定位雷达：匹配4位年份、EXX、SXX、1080p、Remux等PT核心分水岭标签
+    # 4. 自动识别并切除特定的多集打包集数噪声（例如 E01-E10, E1-10）
+    clean_name = re.sub(r'\be\d+[-─—~～至]\e?\d+\b', '', clean_name, flags=re.IGNORECASE)
+    
+    # 5. 精准正则定位雷达：匹配 4 位年份、单独的EXX、SXX、1080p、Remux等PT核心分水岭标签
     keywords = [
         r'\b\d{4}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+k\b',
         r'\bbluray\b', r'\bremux\b', r'\bdts\b', r'\bhdma\b', r'\batmos\b', 
@@ -165,27 +163,25 @@ else:
     )
     
     if uploaded_files:
-        video_extensions = ('.mp4', '.mkv', '.avi', '.iso', '.m2ts')
         valid_movie_names = []
         
         for file in uploaded_files:
             path_parts = file.name.replace("\\", "/").split("/")
             filename = path_parts[-1]
             
-            # 放宽判断条件，只要包含视频后缀或原盘目录特征，直接抓取文件名字符串
-            if filename.lower().endswith(video_extensions) or "bdmv" in file.name.lower() or "certificate" in file.name.lower():
-                # 散装原盘特征拦截
-                if "bdmv" in file.name.lower() or "certificate" in file.name.lower():
-                    if len(path_parts) >= 3:
-                        valid_movie_names.append(path_parts[-3])
-                    continue
-                valid_movie_names.append(file.name)
+            # 💡 [降维打击]：全面放弃复杂的后缀过滤大门，只要有名字字符串，一律无条件放行进正则清洗
+            if "bdmv" in file.name.lower() or "certificate" in file.name.lower():
+                if len(path_parts) >= 3:
+                    valid_movie_names.append(path_parts[-3])
+                continue
+            
+            valid_movie_names.append(filename)
                 
         # 整体去重
         valid_movie_names = list(set(valid_movie_names))
         
         if not valid_movie_names:
-            st.warning("⚠️ 探测完成，但选中的文件里似乎没有包含标准的视频格式或蓝光原盘。")
+            st.warning("⚠️ 探测完成，但选中的文件里似乎没有捕获到任何有效的文件名字符串。")
         else:
             st.subheader(f"📊 成功捕获本地影视资源 {len(valid_movie_names)} 部：")
             st.markdown("---")
@@ -218,3 +214,5 @@ else:
                                 st.markdown(f"**⚠️ {res['title'] if res.get('title') else clean_title}**")
                                 st.error(f"🛑 强力拦截：{res['msg']}")
                             else:
+                                st.image("https://unsplash.com", use_container_width=True)
+                                st.markdown(f"**❌ {clean_title}**")
