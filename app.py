@@ -1,8 +1,6 @@
 import streamlit as st
 import requests
 import math
-import re
-import os
 
 # ==================== 🛠️ 用户配置区 ====================
 OMDB_API_KEY = "f22cac4f"  # 你的 8 位免费 Key
@@ -10,13 +8,13 @@ ALPHA = 0.7  # 电影加权：大众占比
 BETA = 0.3   # 电影加权：专家占比
 # =======================================================
 
-st.set_page_config(page_title="7:3 智能影视资产雷达", page_icon="🎬", layout="wide")
+st.set_page_config(page_title="7:3 智能影视严选雷达", page_icon="🎬", layout="wide")
 
 st.title("🎬 智能影视评分 7:3 黄金加权严选雷达")
-st.markdown("已完美融合 **手动搜索框** 与 **本地多格式/硬核PT命名文件海报墙盲刷引擎**。")
+st.markdown("请输入影视作品的**标准官方英文名**。系统将自动执行自适应双轨加权脱水算法。")
+st.caption("电影最低门槛: 25,000 票 | 剧集最低门槛: 10,000 票 (完全平铺四个体验梯队)")
 
-@st.cache_data(ttl=3600)
-def fetch_movie_data(title, search_type="自动识别"):
+def calculate_consensus_score(title, search_type):
     base_url = "http://omdbapi.com"
     param_t = "?t=" + requests.utils.quote(title)
     
@@ -49,7 +47,7 @@ def fetch_movie_data(title, search_type="自动识别"):
 
             vote_threshold = 10000 if is_series else 25000
             if votes < vote_threshold:
-                return {"status": "intercepted", "msg": f"🛑 未达有效投票门槛 (当前投票: {votes:,})", **info_base}
+                return {"status": "intercepted", "msg": f"🛑 【强力拦截】 该影视未达到有效投票门槛 (当前投票: {votes:,})", **info_base}
             
             if is_series:
                 try: seasons = int(data.get("totalSeasons", "1"))
@@ -59,74 +57,53 @@ def fetch_movie_data(title, search_type="自动识别"):
                 votes_modifier = 1.5 if votes >= 100000 else (-3.0 if votes < 25000 else 0.0)
                 cs_score = base_score + season_bonus + votes_modifier
                 if cs_score > 100.0: cs_score = 100.0
-                log_details = f"IMDb: {imdb_rating} | {seasons}季 | 修正: {votes_modifier:+}"
+                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | 总季数: {seasons}季 | 投票基数修正: {votes_modifier:+}"
             else:
                 raw_metascore = data.get("Metascore", "N/A")
                 metascore = 70.0 if raw_metascore == "N/A" else float(raw_metascore)
                 cs_score = (ALPHA * (imdb_rating * 10)) + (BETA * metascore)
-                log_details = f"IMDb: {imdb_rating} | Metascore: {raw_metascore}"
+                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | Metascore: {raw_metascore}"
 
             if cs_score >= 88.0: tier, color = "T1_神作", "🔴"
             elif 80.0 <= cs_score < 88.0: tier, color = "T2_黄金", "🟡"
             elif 75.0 <= cs_score < 80.0: tier, color = "T3_优质", "🟢"
             elif 70.0 <= cs_score < 75.0: tier, color = "T4_高爽", "🔵"
             else:
-                return {"status": "intercepted", "msg": f"🛑 未达及格线 (评分: {cs_score:.1f}分)", **info_base}
+                return {"status": "intercepted", "msg": f"🛑 【强力拦截】 该影视未达收藏及格线。 (最终得分: {cs_score:.1f}分)", **info_base}
                 
             return {"status": "success", "score": f"{cs_score:.1f}", "tier": f"{color} {tier}", "details": log_details, **info_base}
     except:
         pass
     return {"status": "not_found"}
 
-def clean_filename_hardcore(filename):
-    """
-    🎛️ 终极彻底清洗引擎：完美斩断 4位年份、E01-E10等一切硬核PT噪音，只留纯净原名
-    """
-    # 1. 强行隔离路径符号，精确提取最末端的文件名
-    clean_name = filename.replace("\\", "/").split("/")[-1]
-    
-    # 2. 剥离标准物理文件扩展名
-    clean_name, _ = os.path.splitext(clean_name)
-    
-    # 3. 将常见的点、下划线替换为空格，中划线先保留用于匹配连字符集数
-    clean_name = clean_name.replace('.', ' ').replace('_', ' ')
-    
-    # 4. 【特种爆破】针对连字符打包集数（如 E01-E10、E1-10、S01-S03）直接先切除右侧所有噪声
-    match_episodes = re.search(r'\b[es]\d+[-─—~～至][es]?\d+\b', clean_name, flags=re.IGNORECASE)
-    if match_episodes:
-        clean_name = clean_name[:match_episodes.start()]
-    
-    # 现在将中划线也安全替换掉
-    clean_name = clean_name.replace('-', ' ')
-    
-    # 5. 【核心截断雷达】
-    # 只要看到 19xx 或 20xx 的 4 位数字年份，或者 1080p、remux 等工业标签，立刻拦腰斩断右侧所有噪音！
-    keywords = [
-        r'\b(19|20)\d{2}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+k\b',
-        r'\bbluray\b', r'\bremux\b', r'\bdts\b', r'\bhdma\b', r'\batmos\b', 
-        r'\bx264\b', r'\bx265\b', r'\bhevc\b', r'\bavc\b', r'\bchd\b', r'\bwiki\b'
-    ]
-    
-    pattern = re.compile('|'.join(keywords), re.IGNORECASE)
-    match = pattern.search(clean_name)
-    
-    if match:
-        clean_name = clean_name[:match.start()]
-        
-    # 6. 清理前后多余空格，并合并内部连续的多个空格
-    clean_name = re.sub(r'\s+', ' ', clean_name).strip()
-    return clean_name
+# 🎛️ 前端组件
+search_type = st.radio(
+    "🧭 影视类型定位器 (遇到同名冲突时手动切换锁定):",
+    ["自动识别", "只查电影", "只查剧集"], horizontal=True
+)
 
-def render_movie_ui_block(res, clean_title):
+movie_input = st.text_input("请输入电影或电视剧的标准英文名：", key="search_input")
+
+if movie_input:
+    with st.spinner("正在连接全网活数据池，执行自适应双轨算法脱水..."):
+        res = calculate_consensus_score(movie_input.strip(), search_type)
+        
+    st.markdown("---")
+    
+    # 只要成功在网络上查到了这部片（不管是过关系还是被拦截），都在左侧完美渲染海报
     if res["status"] in ["success", "intercepted"]:
-        layout_col1, layout_col2 = st.columns([1, 2]) 
+        # 1:2 宽屏黄金分栏比例，不留空括号，防止云端部署报错
+        layout_col1, layout_col2 = st.columns() 
+        
         with layout_col1:
-            st.image(res["poster"], caption=f"《{res['title']}》海报", use_container_width=True)
+            st.image(res["poster"], caption=f"《{res['title']}》官方海报", use_container_width=True)
+            
         with layout_col2:
             if res["status"] == "success":
                 card_col1, card_col2 = st.columns(2)
                 with card_col1: st.metric(label="📊 最终加权得分", value=f"{res['score']} 分")
                 with card_col2: st.metric(label="🏷️ 精准归类梯队", value=res["tier"])
+                st.success(f"**影视诊断**：该片已成功通过核心算法洗礼，已收入本地数字资产仓储库。")
             else:
                 st.error(res["msg"])
             
@@ -141,82 +118,12 @@ def render_movie_ui_block(res, clean_title):
                 st.markdown(f"**🎥 导演/主创**：{res['director']}")
                 if res['type'] == "电影": st.markdown(f"**💰 院线票房**：{res['boxoffice']}")
                 else: st.markdown(f"**📺 影视类别**：电视剧/剧集")
-            st.markdown(f"**🎭 核心演员**：{res['actors']}")
+                    
+            st.markdown(f"**🎭 核心演员阵容**：{res['actors']}")
             st.markdown("#### 📝 剧情梗概")
             st.info(res["plot"])
+            
+            if res["status"] == "success":
+                st.caption(f"🔧 **底层数据链监控**：{res['details']}")
     else:
-        st.error(f"❌ 线上未匹配到与「{clean_title}」相关的影视信息，请检查英文名命名结构。")
-
-# ==================== 🎛️ 前端控制中心 ====================
-search_mode = st.sidebar.radio("⚙️ 请选择操作模式：", ["🔍 单部精确搜索", "📂 批量扫描本地文件夹"])
-
-if search_mode == "🔍 单部精确搜索":
-    search_type = st.radio("🧭 影视类型定位器：", ["自动识别", "只查电影", "只查剧集"], horizontal=True)
-    movie_input = st.text_input("请输入您要查询的电影或电视剧名字 (英文名)：", key="single_search")
-    
-    if movie_input:
-        with st.spinner("正在连接全网数据池..."):
-            res = fetch_movie_data(movie_input.strip(), search_type)
-        st.markdown("---")
-        render_movie_ui_block(res, movie_input)
-
-else:
-    st.subheader("📂 本地影视资产海报墙")
-    uploaded_files = st.file_uploader(
-        "选择或拖拽您的 NAS / 本地电影文件夹到这里：", 
-        accept_multiple_files=True, 
-        key="folder_loader"
-    )
-    
-    if uploaded_files:
-        valid_movie_names = []
-        
-        for file in uploaded_files:
-            path_parts = file.name.replace("\\", "/").split("/")
-            filename = path_parts[-1]
-            
-            # 兼容散装原盘逻辑：如果路径中深藏 BDMV 目录，则逆向向上数层级抓取真正的影片根目录名
-            if "bdmv" in file.name.lower() or "certificate" in file.name.lower():
-                if len(path_parts) >= 3:
-                    valid_movie_names.append(path_parts[-3])
-                continue
-            
-            valid_movie_names.append(filename)
-                
-        # 整体去重
-        valid_movie_names = list(set(valid_movie_names))
-        
-        if not valid_movie_names:
-            st.warning("⚠️ 探测完成，但选中的文件里似乎没有捕获到任何有效的文件名。")
-        else:
-            st.subheader(f"📊 成功捕获本地影视资源 {len(valid_movie_names)} 部：")
-            st.markdown("---")
-            
-            # 4列网格平铺海报墙布局
-            columns_per_row = 4
-            for i in range(0, len(valid_movie_names), columns_per_row):
-                cols = st.columns(columns_per_row)
-                for j in range(columns_per_row):
-                    if i + j < len(valid_movie_names):
-                        raw_name = valid_movie_names[i + j]
-                        
-                        # 核心大清洗：将类似于 "Band Of Brothers 2001 E01-E10..." 彻底洗白为 "Band Of Brothers"
-                        clean_title = clean_filename_hardcore(raw_name)
-                        
-                        # 保底机制：若彻底切成空字串，则用无后缀原名作为关键词顶替
-                        if not clean_title:
-                            clean_title = os.path.splitext(raw_name)[0]
-                        
-                        res = fetch_movie_data(clean_title)
-                        
-                        with cols[j]:
-                            if res["status"] == "success":
-                                st.image(res["poster"], use_container_width=True)
-                                st.markdown(f"**🎬 {res['title']} ({res['year']})**")
-                                st.markdown(f"分：`{res['score']}` | 档：{res['tier']}")
-                                with st.expander("🔍 展开影视详细档案"):
-                                    st.caption(f"**类型**：{res['type']} | **风格**：{res['genre']}\n\n**导演**：{res['director']}")
-                                    st.info(res["plot"])
-                            elif res["status"] == "intercepted":
-                                p_url = res["poster"] if (res.get("poster") and res["poster"] != "N/A") else "https://unsplash.com"
-                                st.image(p_url, use_container_width=True)
+        st.error("❌ 线上未识别到该影片信息，请检查标准英文名称是否输入正确。")
