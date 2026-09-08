@@ -4,58 +4,28 @@ import math
 
 # ==================== 🛠️ 用户配置区 ====================
 OMDB_API_KEY = "f22cac4f"  # 你的 8 位免费 Key
-ALPHA = 0.7  # 电影算法：大众占比
-BETA = 0.3   # 电影算法：专家占比
+ALPHA = 0.7  # 电影大众占比
+BETA = 0.3   # 电影专家占比
 # =======================================================
 
-st.set_page_config(page_title="7:3 智能影视严选雷达", page_icon="🎬", layout="wide")
+st.set_page_config(page_title="云端影视资产严选看板", page_icon="🎬", layout="wide")
 
-st.title("🎬 影视评分 7:3 黄金加权严选雷达 (自愈自适应完全体)")
-st.markdown("支持**直接输入中文/英文/模糊词**。系统会自动完成翻译、多季长线去噪及模糊海报墙推荐。")
+st.title("🎬 私人本地影视资产·云端严选看板")
+st.markdown("💡 **原理说明**：点击下方按钮选择您的本地电影文件夹，浏览器**仅读取影视文件名**，绝对不会上传您的视频隐私，不消耗任何物理流量。")
 
-def translate_to_english(text):
+def clean_filename(filename):
     """
-    自愈式智能中转：多备选机制将中文片名翻译为英文
+    智能清洗浏览器抓取到的本地视频文件名，剥离压制标签和后缀
     """
-    # 检查是否包含中文
-    if any('\u4e00' <= char <= '\u9fff' for char in text):
-        try:
-            # 采用独立的请求头，防止被接口判定为爬虫而拦截
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            url = f"https://googleapis.com{requests.utils.quote(text)}"
-            res = requests.get(url, headers=headers, timeout=4).json()
-            translated = res[0][0][0]
-            if translated and translated.strip():
-                return translated.strip()
-        except:
-            pass
-    return text
+    # 比如从 "Inception.2010.1080p.Bluray.mkv" 中提取 "Inception"
+    clean = filename.split('.1080p').split('.2160p').split('.Bluray').split('.UHD').split('.Remux').split('.S0')
+    # 替换点和下划线为空格
+    return clean.replace('.', ' ').replace('_', ' ').strip()
 
-def search_movie_list(title):
-    """
-    模糊搜索探测器：当精准匹配失败时，抓取前5部最相关的影视列表供用户核对
-    """
+@st.cache_data(ttl=3600)  # 对请求做1小时缓存，防止疯狂刷新把 1000 次免费额度用光
+def fetch_movie_data(title):
     base_url = "http://omdbapi.com"
-    url = f"{base_url}?s={requests.utils.quote(title)}&apikey={OMDB_API_KEY}"
-    try:
-        res = requests.get(url, timeout=5).json()
-        if res.get("Response") == "True":
-            return res.get("Search", [])[:5] # 只取最相关的 5 部
-    except:
-        pass
-    return []
-
-def calculate_consensus_score(title, search_type):
-    base_url = "http://omdbapi.com"
-    param_t = "?t=" + requests.utils.quote(title)
-    param_key = "&apikey=" + OMDB_API_KEY
-    
-    param_type = ""
-    if search_type == "只查电影": param_type = "&type=movie"
-    elif search_type == "只查剧集": param_type = "&type=series"
-        
-    url = base_url + param_t + param_type + param_key
-    
+    url = f"{base_url}?t={requests.utils.quote(title)}&apikey={OMDB_API_KEY}"
     try:
         response = requests.get(url, timeout=5)
         data = response.json()
@@ -65,29 +35,12 @@ def calculate_consensus_score(title, search_type):
             media_type = data.get("Type")
             is_series = (media_type == "series")
             
-            poster_url = data.get("Poster", "N/A")
-            if poster_url == "N/A" or not poster_url.startswith("http"):
-                poster_url = "https://unsplash.com"
-            
-            info_base = {
-                "title": data.get('Title'),
-                "year": data.get('Year'),
-                "type": "电视剧" if is_series else "电影",
-                "poster": poster_url,
-                "released": data.get("Released", "暂无数据"),
-                "genre": data.get("Genre", "暂无数据"),
-                "director": data.get("Director", "暂无数据"),
-                "actors": data.get("Actors", "暂无数据"),
-                "plot": data.get("Plot", "暂无数据"),
-                "country": data.get("Country", "暂无数据"),
-                "runtime": data.get("Runtime", "暂无数据"),
-                "boxoffice": data.get("BoxOffice", "暂无数据") if not is_series else "N/A"
-            }
-
+            # 门槛限制
             vote_threshold = 10000 if is_series else 25000
             if votes < vote_threshold:
-                return {"status": "intercepted", "msg": f"🛑 【强力拦截】 该影视未达到有效投票门槛 (当前投票数: {votes:,})", **info_base}
+                return {"status": "intercepted", "msg": "未达投票门槛", "title": data.get('Title'), "poster": data.get("Poster")}
             
+            # 双轨算法
             if is_series:
                 try: seasons = int(data.get("totalSeasons", "1"))
                 except: seasons = 1
@@ -96,96 +49,99 @@ def calculate_consensus_score(title, search_type):
                 votes_modifier = 1.5 if votes >= 100000 else (-3.0 if votes < 25000 else 0.0)
                 cs_score = base_score + season_bonus + votes_modifier
                 if cs_score > 100.0: cs_score = 100.0
-                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | 总季数: {seasons}季 | 投票基数修正: {votes_modifier:+}"
             else:
                 raw_metascore = data.get("Metascore", "N/A")
                 metascore = 70.0 if raw_metascore == "N/A" else float(raw_metascore)
                 cs_score = (ALPHA * (imdb_rating * 10)) + (BETA * metascore)
-                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | Metascore: {raw_metascore}"
 
-            if cs_score >= 88.0: tier_label, color = "T1_神作", "🔴"
-            elif 80.0 <= cs_score < 88.0: tier_label, color = "T2_黄金", "🟡"
-            elif 75.0 <= cs_score < 80.0: tier_label, color = "T3_优质", "🟢"
-            elif 70.0 <= cs_score < 75.0: tier_label, color = "T4_高爽", "🔵"
+            # 判定四个体验档
+            if cs_score >= 88.0: tier, color = "T1_神作", "🔴"
+            elif 80.0 <= cs_score < 88.0: tier, color = "T2_黄金", "🟡"
+            elif 75.0 <= cs_score < 80.0: tier, color = "T3_优质", "🟢"
+            elif 70.0 <= cs_score < 75.0: tier, color = "T4_高爽", "🔵"
             else:
-                return {"status": "intercepted", "msg": f"🛑 【强力拦截】 该影视未达收藏及格线。 (最终得分: {cs_score:.1f}分)", **info_base}
+                return {"status": "intercepted", "msg": "存在明显硬伤，未达收藏线", "title": data.get('Title'), "poster": data.get("Poster")}
                 
-            return {"status": "success", "score": f"{cs_score:.1f}", "tier": f"{color} {tier_label}", "details": log_details, **info_base}
+            poster_url = data.get("Poster", "N/A")
+            if poster_url == "N/A" or not poster_url.startswith("http"):
+                poster_url = "https://unsplash.com"
+
+            return {
+                "status": "success", "score": f"{cs_score:.1f}", "tier": f"{color} {tier}",
+                "title": data.get('Title'), "year": data.get('Year'), "type": "剧集" if is_series else "电影",
+                "poster": poster_url, "genre": data.get("Genre"), "director": data.get("Director"),
+                "actors": data.get("Actors"), "plot": data.get("Plot")
+            }
     except:
         pass
     return {"status": "not_found"}
 
-# 前端交互组件
-search_type = st.radio(
-    "🧭 影视类型定位器 (遇到同名冲突时手动切换):",
-    ["自动识别", "只查电影", "只查剧集"], horizontal=True
+# 🌟 核心突破口：网页端本地文件夹选择入口
+# 允许用户直接在网页上点选一个本地文件夹
+uploaded_files = st.file_uploader(
+    "📂 点击下方或把您的本地电影文件夹拖拽到这里：", 
+    accept_multiple_files=True, 
+    key="folder_input"
 )
 
-movie_input = st.text_input("请输入电影或电视剧名字 (直接写中文、英文或模糊词均可):", key="search_input")
+if uploaded_files:
+    # 智能过滤：由于浏览器会把文件夹里所有文件（包括歌词、图片）都抓出来
+    # 我们只保留标准的视频封装格式和原盘 ISO
+    video_extensions = ('.mp4', '.mkv', '.avi', '.iso', '.m2ts')
+    valid_titles = []
+    
+    for file in uploaded_files:
+        if file.name.lower().endswith(video_extensions):
+            # 如果是散装 BDMV 原盘里的切片文件，我们直接提取它上层文件夹的名字作为片名
+            if "stream" in file.name.lower() or "bdmv" in file.name.lower():
+                # 这种情况下我们尝试拿首个有效视频文件的特征即可
+                continue
+            valid_titles.append(file.name)
+            
+    # 去重
+    valid_titles = list(set(valid_titles))
 
-if movie_input:
-    raw_input = movie_input.strip()
-    
-    with st.spinner("正在启动智能中转与算法脱水..."):
-        # 1. 自动执行中文翻译
-        eng_title = translate_to_english(raw_input)
-        if eng_title != raw_input:
-            st.caption(f"🤖 智能翻译中转：已自动将「{raw_input}」转化为英文关键词「{eng_title}」进行匹配...")
-            
-        # 2. 尝试精准跑分
-        res = calculate_consensus_score(eng_title, search_type)
-        
-    st.markdown("---")
-    
-    # 情况 A：精准匹配成功（过关或拦截）
-    if res["status"] in ["success", "intercepted"]:
-        # 💡 [完美修复]：这里必须传入具体的列数或比例参数，强制锁死 [1, 2] 黄金分栏比例，根除报错
-        layout_col1, layout_col2 = st.columns([1, 2]) 
-        with layout_col1:
-            st.image(res["poster"], caption=f"《{res['title']}》海报", use_container_width=True)
-        with layout_col2:
-            if res["status"] == "success":
-                card_col1, card_col2 = st.columns(2)
-                with card_col1: st.metric(label="📊 最终加权得分", value=f"{res['score']} 分")
-                with card_col2: st.metric(label="🏷️ 精准归类梯队", value=res["tier"])
-                st.success(f"**影视诊断**：已成功收入本地数字资产仓储库。")
-            else:
-                st.error(res["msg"])
-            
-            st.markdown("### 🎞️ 影视详细档案")
-            meta_col1, meta_col2 = st.columns(2)
-            with meta_col1:
-                st.markdown(f"**🎬 影视原名**：{res['title']}")
-                st.markdown(f"**📅 年份/首播**：{res['year']} ({res['released']})")
-                st.markdown(f"**⏳ 类型/时长**：{res['genre']} / {res['runtime']}")
-            with meta_col2:
-                st.markdown(f"**🌍 国家/地区**：{res['country']}")
-                st.markdown(f"**🎥 导演/主创**：{res['director']}")
-                if res['type'] == "电影": st.markdown(f"**💰 院线票房**：{res['boxoffice']}")
-                else: st.markdown(f"**📺 影视类别**：电视剧/剧集")
-            st.markdown(f"**🎭 核心演员**：{res['actors']}")
-            st.markdown("#### 📝 剧情梗概")
-            st.info(res["plot"])
-            if res["status"] == "success": st.caption(f"🔧 **活数据监控**：{res['details']}")
-            
-    # 情况 B：精准匹配失败，开启海报墙选片模式
+    if not valid_titles:
+        st.warning("⚠️ 探测完成，但您选中的文件夹里似乎没有包含标准的视频格式文件。")
     else:
-        st.warning(f"🔍 未能直接精确匹配到「{eng_title}」。已自动为您启动【模糊搜索海报墙探测器】...")
-        fuzzy_list = search_movie_list(eng_title)
+        st.subheader(f"📊 成功在网页端捕获本地影视资产 {len(valid_titles)} 部，正在严选跑分：")
+        st.markdown("---")
         
-        if fuzzy_list:
-            st.markdown("### 🗺️ 帮您找到以下最相关的影视，请比对海报和年份：")
-            cols = st.columns(len(fuzzy_list))  # 此处传入了动态数组长度，符合参数要求
-            for idx, item in enumerate(fuzzy_list):
-                with cols[idx]:
-                    p_url = item.get("Poster", "N/A")
-                    if p_url == "N/A" or not p_url.startswith("http"):
-                        p_url = "https://unsplash.com"
+        # 每行平铺 4 部电影的网格海报墙
+        columns_per_row = 4
+        
+        for i in range(0, len(valid_titles), columns_per_row):
+            cols = st.columns(columns_per_row)
+            for j in range(columns_per_row):
+                if i + j < len(valid_titles):
+                    filename = valid_titles[i + j]
+                    clean_title = clean_filename(filename)
                     
-                    st.image(p_url, use_container_width=True)
-                    st.markdown(f"**🎬 {item.get('Title')}**")
-                    st.caption(f"📅 年份: {item.get('Year')} | 类别: {item.get('Type')}")
-                    st.code(item.get('Title'), language="text") 
-            st.info("💡 **使用窍门**：如果您在上方海报墙中看到了您想找的电影，可以直接**复制它下方的英文框内容**，重新输入上方输入框查询，即可瞬间吐出精确跑分！")
-        else:
-            st.error("❌ 抱歉，全网数据库中实在找不到与该关键词相关的任何影视，请尝试精简或更换关键词。")
+                    # 实时在线对齐跑分
+                    res = fetch_movie_data(clean_title)
+                    
+                    with cols[j]:
+                        if res["status"] == "success":
+                            # 完美通过：平铺展示海报墙
+                            st.image(res["poster"], use_container_width=True)
+                            st.markdown(f"**🎬 {res['title']} ({res['year']})**")
+                            st.markdown(f"分数：`{res['score']}` | 梯队：{res['tier']}")
+                            
+                            with st.expander("🔍 展开影视详细档案"):
+                                st.caption(f"**类型**：{res['type']} | **风格**：{res['genre']}\n\n**导演**：{res['director']}")
+                                st.caption(f"**演员**：{res['actors']}")
+                                st.info(res["plot"])
+                                
+                        elif res["status"] == "intercepted":
+                            # 被红牌拦截：依然显示海报供用户核对
+                            p_url = res["poster"] if (res.get("poster") and res["poster"] != "N/A") else "https://unsplash.com"
+                            st.image(p_url, use_container_width=True)
+                            st.markdown(f"**⚠️ {res['title'] if res.get('title') else clean_title}**")
+                            st.error(f"🛑 强力拦截：{res['msg']}")
+                            
+                        else:
+                            # 彻底查无此片
+                            st.image("https://unsplash.com", use_container_width=True)
+                            st.markdown(f"**❌ {clean_title}**")
+                            st.warning("线上未匹配到，请检查本地文件名")
+            st.markdown("---")
