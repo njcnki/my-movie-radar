@@ -57,12 +57,12 @@ def calculate_consensus_score(title, search_type):
                 votes_modifier = 1.5 if votes >= 100000 else (-3.0 if votes < 25000 else 0.0)
                 cs_score = base_score + season_bonus + votes_modifier
                 if cs_score > 100.0: cs_score = 100.0
-                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | 总季数: {seasons}季 | 投票基数修正: {votes_modifier:+}"
+                log_details = f"IMDb: {imdb_rating} | {seasons}季 | 修正: {votes_modifier:+}"
             else:
                 raw_metascore = data.get("Metascore", "N/A")
                 metascore = 70.0 if raw_metascore == "N/A" else float(raw_metascore)
                 cs_score = (ALPHA * (imdb_rating * 10)) + (BETA * metascore)
-                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | Metascore: {raw_metascore}"
+                log_details = f"IMDb: {imdb_rating} | Metascore: {raw_metascore}"
 
             if cs_score >= 88.0: tier, color = "T1_神作", "🔴"
             elif 80.0 <= cs_score < 88.0: tier, color = "T2_黄金", "🟡"
@@ -76,7 +76,7 @@ def calculate_consensus_score(title, search_type):
         pass
     return {"status": "not_found"}
 
-# 🎛️ 前端组件
+# 🎛️ 前端交互组件
 search_type = st.radio(
     "🧭 影视类型定位器 (遇到同名冲突时手动切换锁定):",
     ["自动识别", "只查电影", "只查剧集"], horizontal=True
@@ -90,16 +90,17 @@ if movie_input:
         
     st.markdown("---")
     
-    # 只要成功在网络上查到了这部片（不管是过关系还是被拦截），都在左侧完美渲染海报
+    # 只要在网络上查到了这部片（不管是过关还是被拦截），都渲染大图和档案
     if res["status"] in ["success", "intercepted"]:
-        # 1:2 宽屏黄金分栏比例，不留空括号，防止云端部署报错
-        layout_col1, layout_col2 = st.columns() 
+        # 💡 [完美修复]：这里强制指定分配 2 列，彻底封死空括号报错
+        layout_col1, layout_col2 = st.columns(2) 
         
         with layout_col1:
             st.image(res["poster"], caption=f"《{res['title']}》官方海报", use_container_width=True)
             
         with layout_col2:
             if res["status"] == "success":
+                # 💡 [完美修复]：这里同样指定分配 2 列
                 card_col1, card_col2 = st.columns(2)
                 with card_col1: st.metric(label="📊 最终加权得分", value=f"{res['score']} 分")
                 with card_col2: st.metric(label="🏷️ 精准归类梯队", value=res["tier"])
@@ -108,6 +109,7 @@ if movie_input:
                 st.error(res["msg"])
             
             st.markdown("### 🎞️ 影视详细档案")
+            # 💡 [完美修复]：指定分配 2 列
             meta_col1, meta_col2 = st.columns(2)
             with meta_col1:
                 st.markdown(f"**🎬 影视原名**：{res['title']}")
