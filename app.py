@@ -92,7 +92,7 @@ def clean_filename_hardcore(filename):
     clean_name = clean_name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
     
     # 4. 自动识别并切除特定的多集打包集数噪声（例如 E01-E10, E1-10）
-    clean_name = re.sub(r'\be\d+[-─—~～至]\e?\d+\b', '', clean_name, flags=re.IGNORECASE)
+    clean_name = re.sub(r'\be\d+[-─—~～至]e?\d+\b', '', clean_name, flags=re.IGNORECASE)
     
     # 5. 精准正则定位雷达：匹配 4 位年份、单独的EXX、SXX、1080p、Remux等PT核心分水岭标签
     keywords = [
@@ -169,7 +169,7 @@ else:
             path_parts = file.name.replace("\\", "/").split("/")
             filename = path_parts[-1]
             
-            # 💡 [降维打击]：全面放弃复杂的后缀过滤大门，只要有名字字符串，一律无条件放行进正则清洗
+            # 💡 强力降维解法：只要拉入任意名字，统统无条件放行进入正则雷达脱水
             if "bdmv" in file.name.lower() or "certificate" in file.name.lower():
                 if len(path_parts) >= 3:
                     valid_movie_names.append(path_parts[-3])
@@ -181,7 +181,7 @@ else:
         valid_movie_names = list(set(valid_movie_names))
         
         if not valid_movie_names:
-            st.warning("⚠️ 探测完成，但选中的文件里似乎没有捕获到任何有效的文件名字符串。")
+            st.warning("⚠️ 探测完成，但选中的文件里似乎没有捕获到任何有效的文件名。")
         else:
             st.subheader(f"📊 成功捕获本地影视资源 {len(valid_movie_names)} 部：")
             st.markdown("---")
@@ -216,3 +216,4 @@ else:
                             else:
                                 st.image("https://unsplash.com", use_container_width=True)
                                 st.markdown(f"**❌ {clean_title}**")
+                                st.warning("未匹配到，请检查英文名")
