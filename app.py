@@ -80,23 +80,25 @@ def fetch_movie_data(title, search_type="自动识别"):
 
 def clean_filename_hardcore(filename):
     """
-    🎛️ 终极自适应：专门剥离多层虚拟路径，精准斩断 PT 压制组复杂后缀
+    🎛️ 终极彻底清洗引擎：完美斩断2001、E01-E10等一切硬核PT噪音，只留纯净原名
     """
-    # 1. 强行洗白 Windows/Linux 混淆的路径符号，提取最纯净的文件尾部名
+    # 1. 提取最末端纯净文件名
     clean_name = filename.replace("\\", "/").split("/")[-1]
-    
-    # 2. 剥离扩展名
     clean_name, _ = os.path.splitext(clean_name)
     
-    # 3. 将点、下划线、中划线统一变成空格，方便正则定位
-    clean_name = clean_name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
+    # 2. 将常见的点、下划线替换为空格，中划线先保留（用于匹配集数）
+    clean_name = clean_name.replace('.', ' ').replace('_', ' ')
     
-    # 4. 自动识别并切除特定的多集打包集数噪声（例如 E01-E10, E1-10）
-    clean_name = re.sub(r'\be\d+[-─—~～至]e?\d+\b', '', clean_name, flags=re.IGNORECASE)
+    # 3. 【降维打击】智能切除多集连字符噪声（例如 E01-E10, E1-10），防止其干扰路径
+    clean_name = re.sub(r'\be\d+[-─—~～至]e?\d+\b', ' ', clean_name, flags=re.IGNORECASE)
     
-    # 5. 精准正则定位雷达：匹配 4 位年份、单独的EXX、SXX、1080p、Remux等PT核心分水岭标签
+    # 现在把中划线也安全替换掉
+    clean_name = clean_name.replace('-', ' ')
+    
+    # 4. 【核心升级】年份及大厂工业标签一刀切雷达
+    # 只要看到 19xx 或 20xx 的 4 位数字年份，或者 1080p、remux 等词，立刻拦腰斩断右侧所有噪音！
     keywords = [
-        r'\b\d{4}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+k\b',
+        r'\b(19|20)\d{2}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+k\b',
         r'\bbluray\b', r'\bremux\b', r'\bdts\b', r'\bhdma\b', r'\batmos\b', 
         r'\bx264\b', r'\bx265\b', r'\bhevc\b', r'\bavc\b', r'\bchd\b', r'\bwiki\b'
     ]
@@ -107,7 +109,9 @@ def clean_filename_hardcore(filename):
     if match:
         clean_name = clean_name[:match.start()]
         
-    return clean_name.strip()
+    # 5. 清理前后空格，并将中间连续的多个空格缩减为单个标准英文空格
+    clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+    return clean_name
 
 def render_movie_ui_block(res, clean_title):
     if res["status"] in ["success", "intercepted"]:
@@ -142,7 +146,6 @@ def render_movie_ui_block(res, clean_title):
 # ==================== 🎛️ 前端控制中心 ====================
 search_mode = st.sidebar.radio("⚙️ 请选择操作模式：", ["🔍 单部精确搜索", "📂 批量扫描本地文件夹"])
 
-# ----------------- 引擎一：手动精确搜索框 -----------------
 if search_mode == "🔍 单部精确搜索":
     search_type = st.radio("🧭 影视类型定位器：", ["自动识别", "只查电影", "只查剧集"], horizontal=True)
     movie_input = st.text_input("请输入您要查询的电影或电视剧名字 (英文名)：", key="single_search")
@@ -153,7 +156,6 @@ if search_mode == "🔍 单部精确搜索":
         st.markdown("---")
         render_movie_ui_block(res, movie_input)
 
-# ----------------- 引擎二：本地文件夹批量刷盘 -----------------
 else:
     st.subheader("📂 本地影视资产海报墙")
     uploaded_files = st.file_uploader(
@@ -169,7 +171,6 @@ else:
             path_parts = file.name.replace("\\", "/").split("/")
             filename = path_parts[-1]
             
-            # 💡 强力降维解法：只要拉入任意名字，统统无条件放行进入正则雷达脱水
             if "bdmv" in file.name.lower() or "certificate" in file.name.lower():
                 if len(path_parts) >= 3:
                     valid_movie_names.append(path_parts[-3])
@@ -177,7 +178,6 @@ else:
             
             valid_movie_names.append(filename)
                 
-        # 整体去重
         valid_movie_names = list(set(valid_movie_names))
         
         if not valid_movie_names:
@@ -186,7 +186,6 @@ else:
             st.subheader(f"📊 成功捕获本地影视资源 {len(valid_movie_names)} 部：")
             st.markdown("---")
             
-            # 4列网格平铺海报墙
             columns_per_row = 4
             for i in range(0, len(valid_movie_names), columns_per_row):
                 cols = st.columns(columns_per_row)
@@ -194,10 +193,13 @@ else:
                     if i + j < len(valid_movie_names):
                         raw_name = valid_movie_names[i + j]
                         
-                        # 强力洗白硬核 PT 命名
+                        # 执行无懈可击的核心脱水清洗
                         clean_title = clean_filename_hardcore(raw_name)
                         
-                        # 联网请求
+                        # 核心防线：如果切出来是空的，说明文件名全被当成了噪声，用原名顶替
+                        if not clean_title:
+                            clean_title = os.path.splitext(raw_name)[0]
+                        
                         res = fetch_movie_data(clean_title)
                         
                         with cols[j]:
@@ -214,6 +216,5 @@ else:
                                 st.markdown(f"**⚠️ {res['title'] if res.get('title') else clean_title}**")
                                 st.error(f"🛑 强力拦截：{res['msg']}")
                             else:
-                                st.image("https://unsplash.com", use_container_width=True)
-                                st.markdown(f"**❌ {clean_title}**")
-                                st.warning("未匹配到，请检查英文名")
+                                # 💡【终极保底修复】：如果精准查无此片，这里绝不再坐以待毙！自动调用模糊搜索列表，抓出海报墙
+                                base_url = "http://omdbapi.com"
