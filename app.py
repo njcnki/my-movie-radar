@@ -3,7 +3,7 @@ import requests
 import math
 
 # ==================== 🛠️ 用户配置区 ====================
-OMDB_API_KEY = "f22cac4f"  # 已填入你专属的 8 位免费 Key
+OMDB_API_KEY = "f22cac4f"  # 你的 8 位免费 Key
 ALPHA = 0.7  # 电影算法：大众占比
 BETA = 0.3   # 电影算法：专家占比
 # =======================================================
@@ -31,9 +31,35 @@ def calculate_consensus_score(title):
             media_type = data.get("Type")
             is_series = (media_type == "series")
             
+            # 提取影视海报网址，若无海报则用占位图
+            poster_url = data.get("Poster", "N/A")
+            if poster_url == "N/A" or not poster_url.startswith("http"):
+                poster_url = "https://unsplash.com"
+            
+            # 丰富影视基础元数据
+            info_base = {
+                "title": data.get('Title'),
+                "year": data.get('Year'),
+                "type": "电视剧" if is_series else "电影",
+                "poster": poster_url,
+                "released": data.get("Released", "暂无数据"),
+                "genre": data.get("Genre", "暂无数据"),
+                "director": data.get("Director", "暂无数据"),
+                "actors": data.get("Actors", "暂无数据"),
+                "plot": data.get("Plot", "暂无数据"),
+                "country": data.get("Country", "暂无数据"),
+                "runtime": data.get("Runtime", "暂无数据"),
+                "boxoffice": data.get("BoxOffice", "暂无数据") if not is_series else "N/A"
+            }
+
+            # 判定门槛限制
             vote_threshold = 10000 if is_series else 25000
             if votes < vote_threshold:
-                return {"status": "error", "msg": f"🛑 【强力拦截】 该影视未达到有效投票门槛 (当前投票数: {votes:,})"}
+                return {
+                    "status": "intercepted", 
+                    "msg": f"🛑 【强力拦截】 该影视未达到有效投票门槛 (当前投票数: {votes:,})",
+                    **info_base
+                }
             
             # 轨道一：剧集专用长线生存率模型
             if is_series:
@@ -47,14 +73,14 @@ def calculate_consensus_score(title):
                 
                 cs_score = base_score + season_bonus + votes_modifier
                 if cs_score > 100.0: cs_score = 100.0
-                log_details = f"IMDb: {imdb_rating} | 总季数: {seasons}季 | 投票基数修正: {votes_modifier:+}"
+                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | 总季数: {seasons}季 | 投票基数修正: {votes_modifier:+}"
             
             # 轨道二：标准电影 7:3 严格加权模型
             else:
                 raw_metascore = data.get("Metascore", "N/A")
                 metascore = 70.0 if raw_metascore == "N/A" else float(raw_metascore)
                 cs_score = (ALPHA * (imdb_rating * 10)) + (BETA * metascore)
-                log_details = f"IMDb: {imdb_rating} | Metascore: {raw_metascore}"
+                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | Metascore: {raw_metascore}"
 
             # 统一判定四大梯队
             if cs_score >= 88.0: tier_label, color = "T1_神作", "🔴"
@@ -62,22 +88,18 @@ def calculate_consensus_score(title):
             elif 75.0 <= cs_score < 80.0: tier_label, color = "T3_优质", "🟢"
             elif 70.0 <= cs_score < 75.0: tier_label, color = "T4_高爽", "🔵"
             else:
-                return {"status": "error", "msg": f"🛑 【强力拦截】 该影视存在明显硬伤或海外热度不足，未达收藏及格线。 (最终得分: {cs_score:.1f}分)"}
-                
-            # 提取活数据中的海报网址，若无海报则用占位图兜底
-            poster_url = data.get("Poster", "N/A")
-            if poster_url == "N/A" or not poster_url.startswith("http"):
-                poster_url = "https://unsplash.com" # 科技感电影占位图
+                return {
+                    "status": "intercepted", 
+                    "msg": f"🛑 【强力拦截】 该影视存在明显硬伤或海外热度不足，未达收藏及格线。 (最终得分: {cs_score:.1f}分)",
+                    **info_base
+                }
                 
             return {
                 "status": "success",
-                "title": data.get('Title'),
-                "year": data.get('Year'),
-                "type": "电视剧" if is_series else "电影",
                 "score": f"{cs_score:.1f}",
                 "tier": f"{color} {tier_label}",
                 "details": log_details,
-                "poster": poster_url
+                **info_base
             }
     except Exception as e:
         return {"status": "error", "msg": f"❌ 查询失败，网络发生异常: {str(e)}"}
@@ -91,23 +113,50 @@ if movie_input:
         res = calculate_consensus_score(movie_input.strip())
         
     st.markdown("---")
-    if res["status"] == "success":
-        # 🎬 引入左右分栏：左边放海报封面，右边放跑分数据
-        layout_col1, layout_col2 = st.columns(2) # 1:2 的黄金视觉比例
+    
+    if res["status"] in ["success", "intercepted"]:
+        # 左右分栏：左边海报，右边详细数据面板
+        layout_col1, layout_col2 = st.columns([1, 2]) 
         
         with layout_col1:
-            # 渲染高清大封面
             st.image(res["poster"], caption=f"《{res['title']}》官方海报", use_container_width=True)
             
         with layout_col2:
-            # 渲染跑分卡片
-            card_col1, card_col2 = st.columns(2)
-            with card_col1:
-                st.metric(label="📊 最终加权得分", value=f"{res['score']} 分")
-            with card_col2:
-                st.metric(label="🏷️ 精准归类梯队", value=res["tier"])
-                
-            st.success(f"**影视信息**：{res['title']} ({res['year']}) | **类别**：{res['type']}")
-            st.info(f"**底层活数据审计**：{res['details']}")
+            if res["status"] == "success":
+                # 顶部核心得分卡片
+                card_col1, card_col2 = st.columns(2)
+                with card_col1:
+                    st.metric(label="📊 最终加权得分", value=f"{res['score']} 分")
+                with card_col2:
+                    st.metric(label="🏷️ 精准归类梯队", value=res["tier"])
+                st.success(f"**影视诊断**：该片已成功通过 7:3 核心算法洗礼，并收入本地数字资产仓储库。")
+            else:
+                st.error(res["msg"])
+            
+            # 🎬 丰富影视深度元数据展示面板
+            st.markdown("### 🎞️ 影视详细档案")
+            
+            meta_col1, meta_col2 = st.columns(2)
+            with meta_col1:
+                st.markdown(f"**🎬 影视中英文名**：{res['title']}")
+                st.markdown(f"**📅 上映/首播年份**：{res['year']} ({res['released']})")
+                st.markdown(f"**⏳ 影片类型/时长**：{res['genre']} / {res['runtime']}")
+            with meta_col2:
+                st.markdown(f"**🌍 出品国家/地区**：{res['country']}")
+                st.markdown(f"**🎥 导演/主创**：{res['director']}")
+                if res['type'] == "电影":
+                    st.markdown(f"**💰 院线票房**：{res['boxoffice']}")
+                else:
+                    st.markdown(f"**📺 影视类别**：电视剧/剧集")
+                    
+            st.markdown(f"**🎭 核心演员阵容**：{res['actors']}")
+            
+            # 剧情简介面板
+            st.markdown("#### 📝 剧情梗概")
+            st.info(res["plot"])
+            
+            # 算法活数据审计审计
+            if res["status"] == "success":
+                st.caption(f"🔧 **底层数据链监控**：{res['details']}")
     else:
         st.error(res["msg"])
