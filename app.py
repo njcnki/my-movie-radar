@@ -8,8 +8,8 @@ ALPHA = 0.7  # 电影算法：大众占比
 BETA = 0.3   # 电影算法：专家占比
 # =======================================================
 
-# 设置网页标题和图标
-st.set_page_config(page_title="7:3 影视严选加权雷达", page_icon="🎬", layout="centered")
+# 设置网页标题、图标及高大上的宽屏排版
+st.set_page_config(page_title="7:3 影视严选加权雷达", page_icon="🎬", layout="wide")
 
 st.title("🎬 影视评分 7:3 黄金加权严选雷达")
 st.markdown("每次查询将实时联网同步全网活数据池，自动执行自适应双轨加权脱水算法。")
@@ -64,6 +64,11 @@ def calculate_consensus_score(title):
             else:
                 return {"status": "error", "msg": f"🛑 【强力拦截】 该影视存在明显硬伤或海外热度不足，未达收藏及格线。 (最终得分: {cs_score:.1f}分)"}
                 
+            # 提取活数据中的海报网址，若无海报则用占位图兜底
+            poster_url = data.get("Poster", "N/A")
+            if poster_url == "N/A" or not poster_url.startswith("http"):
+                poster_url = "https://unsplash.com" # 科技感电影占位图
+                
             return {
                 "status": "success",
                 "title": data.get('Title'),
@@ -71,13 +76,14 @@ def calculate_consensus_score(title):
                 "type": "电视剧" if is_series else "电影",
                 "score": f"{cs_score:.1f}",
                 "tier": f"{color} {tier_label}",
-                "details": log_details
+                "details": log_details,
+                "poster": poster_url
             }
     except Exception as e:
         return {"status": "error", "msg": f"❌ 查询失败，网络发生异常: {str(e)}"}
     return {"status": "error", "msg": "❌ 线上未识别到该影片信息，请检查英文名称是否输入正确。"}
 
-# 网页前端交互组件
+# 网页前端输入框
 movie_input = st.text_input("请输入您要查询的电影或电视剧名字 (推荐英文名):", key="search_input")
 
 if movie_input:
@@ -86,14 +92,22 @@ if movie_input:
         
     st.markdown("---")
     if res["status"] == "success":
-        # 用漂亮的网页卡片和彩色高亮显示结果
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric(label="📊 最终加权得分", value=f"{res['score']} 分")
-        with col2:
-            st.metric(label="🏷️ 精准归类梯队", value=res["tier"])
+        # 🎬 引入左右分栏：左边放海报封面，右边放跑分数据
+        layout_col1, layout_col2 = st.columns() # 1:2 的黄金视觉比例
+        
+        with layout_col1:
+            # 渲染高清大封面
+            st.image(res["poster"], caption=f"《{res['title']}》官方海报", use_container_width=True)
             
-        st.success(f"**影视信息**：{res['title']} ({res['year']}) | **类别**：{res['type']}")
-        st.info(f"**底层活数据审计**：{res['details']}")
+        with layout_col2:
+            # 渲染跑分卡片
+            card_col1, card_col2 = st.columns(2)
+            with card_col1:
+                st.metric(label="📊 最终加权得分", value=f"{res['score']} 分")
+            with card_col2:
+                st.metric(label="🏷️ 精准归类梯队", value=res["tier"])
+                
+            st.success(f"**影视信息**：{res['title']} ({res['year']}) | **类别**：{res['type']}")
+            st.info(f"**底层活数据审计**：{res['details']}")
     else:
         st.error(res["msg"])
