@@ -10,7 +10,7 @@ BETA = 0.3   # 电影算法：专家占比
 
 st.set_page_config(page_title="7:3 智能影视严选雷达", page_icon="🎬", layout="wide")
 
-st.title("🎬 影视评分 7:3 黄金加权严选雷达 (中文自愈强化版)")
+st.title("🎬 影视评分 7:3 黄金加权严选雷达 (自愈自适应完全体)")
 st.markdown("支持**直接输入中文/英文/模糊词**。系统会自动完成翻译、多季长线去噪及模糊海报墙推荐。")
 
 def translate_to_english(text):
@@ -20,11 +20,11 @@ def translate_to_english(text):
     # 检查是否包含中文
     if any('\u4e00' <= char <= '\u9fff' for char in text):
         try:
-            # 采用全新的独立请求头，防止被谷歌接口判定为爬虫而拦截
+            # 采用独立的请求头，防止被接口判定为爬虫而拦截
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             url = f"https://googleapis.com{requests.utils.quote(text)}"
             res = requests.get(url, headers=headers, timeout=4).json()
-            translated = res
+            translated = res[0][0][0]
             if translated and translated.strip():
                 return translated.strip()
         except:
@@ -35,18 +35,18 @@ def search_movie_list(title):
     """
     模糊搜索探测器：当精准匹配失败时，抓取前5部最相关的影视列表供用户核对
     """
-    base_url = "http://www.omdbapi.com/"
+    base_url = "http://omdbapi.com"
     url = f"{base_url}?s={requests.utils.quote(title)}&apikey={OMDB_API_KEY}"
     try:
         res = requests.get(url, timeout=5).json()
         if res.get("Response") == "True":
-            return res.get("Search",)[:] # 只取最相关的 5 部
+            return res.get("Search", [])[:5] # 只取最相关的 5 部
     except:
         pass
-    return
+    return []
 
 def calculate_consensus_score(title, search_type):
-    base_url = "http://www.omdbapi.com/"
+    base_url = "http://omdbapi.com"
     param_t = "?t=" + requests.utils.quote(title)
     param_key = "&apikey=" + OMDB_API_KEY
     
@@ -139,8 +139,8 @@ if movie_input:
     
     # 情况 A：精准匹配成功（过关或拦截）
     if res["status"] in ["success", "intercepted"]:
-        # 🛠️ 彻底修复：传入 黄金视觉比例参数，解决云端部署报错塌方
-        layout_col1, layout_col2 = st.columns() 
+        # 💡 [完美修复]：这里必须传入具体的列数或比例参数，强制锁死 [1, 2] 黄金分栏比例，根除报错
+        layout_col1, layout_col2 = st.columns([1, 2]) 
         with layout_col1:
             st.image(res["poster"], caption=f"《{res['title']}》海报", use_container_width=True)
         with layout_col2:
@@ -175,7 +175,7 @@ if movie_input:
         
         if fuzzy_list:
             st.markdown("### 🗺️ 帮您找到以下最相关的影视，请比对海报和年份：")
-            cols = st.columns(len(fuzzy_list))
+            cols = st.columns(len(fuzzy_list))  # 此处传入了动态数组长度，符合参数要求
             for idx, item in enumerate(fuzzy_list):
                 with cols[idx]:
                     p_url = item.get("Poster", "N/A")
