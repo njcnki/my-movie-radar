@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import math
 import re
+import os
 
 # ==================== 🛠️ 用户配置区 ====================
 OMDB_API_KEY = "f22cac4f"  # 你的 8 位免费 Key
@@ -79,31 +80,34 @@ def fetch_movie_data(title, search_type="自动识别"):
 
 def clean_filename_hardcore(filename):
     """
-    🎛️ 硬核正则表达式去噪过滤器
-    全面拦截并剔除类似于 "2001 E01-E10 JPN BluRay Remux AVC 1080p DTS-HDM 5.1-CHD" 的复杂噪声
+    🎛️ 终极自适应：专门剥离多层虚拟路径，精准斩断 PT 压制组复杂后缀
     """
-    # 1. 移除非法路径残余，只拿最终文件名并去除后缀
-    name = filename.replace("\\", "/").split("/")[-1]
-    name, _ = os.path.splitext(name)
+    # 1. 强制洗白 Windows/Linux 混淆的路径符号，提取最纯净的文件尾部名
+    clean_name = filename.replace("\\", "/").split("/")[-1]
     
-    # 2. 将点、下划线、中划线统一变成空格，方便正则定位
-    name = name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
+    # 2. 剥离点、下划线、中划线，统一转换为空格
+    clean_name = clean_name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
     
-    # 3. 核心：定义 PT 资源常见的各种压制和标签关键词黑名单（转换为小写比对）
+    # 3. 剥离常见的物理视频扩展名（防后缀干扰正则）
+    for ext in ['mkv', 'mp4', 'avi', 'iso', 'm2ts']:
+        if clean_name.lower().endswith(ext):
+            clean_name = clean_name[:-len(ext)].strip()
+
+    # 4. 精准正则定位雷达：匹配4位年份、EXX-EXX、SXX、1080p、Remux等PT核心分水岭标签
+    # 只要撞上其中任意一个词，立刻以此词的起始位置作为整条街的终点，切除右边所有的噪音
     keywords = [
-        r'\b\d{4}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+p\b', r'\b\d+k\b',
-        r'\bbluray\b', r'\bremux\b', r'\bdts\b', r'\bhdma\b', r'\batmos\b', r'\bx264\b',
-        r'\bx265\b', r'\bhevc\b', r'\bavc\b', r'\bjpn\b', r'\bchd\b', r'\bwiki\b', r'\bhdr\b'
+        r'\b\d{4}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+k\b',
+        r'\bbluray\b', r'\bremux\b', r'\bdts\b', r'\bhdma\b', r'\batmos\b', 
+        r'\bx264\b', r'\bx265\b', r'\bhevc\b', r'\bavc\b', r'\bchd\b', r'\bwiki\b'
     ]
     
     pattern = re.compile('|'.join(keywords), re.IGNORECASE)
-    match = pattern.search(name)
+    match = pattern.search(clean_name)
     
     if match:
-        # 抓取到首个噪声标签的位置，直接拦截左侧切片
-        name = name[:match.start()]
+        clean_name = clean_name[:match.start()]
         
-    return name.strip()
+    return clean_name.strip()
 
 def render_movie_ui_block(res, clean_title):
     if res["status"] in ["success", "intercepted"]:
@@ -135,12 +139,10 @@ def render_movie_ui_block(res, clean_title):
     else:
         st.error(f"❌ 线上未匹配到与「{clean_title}」相关的影视信息，请检查英文名命名结构。")
 
-import os
-
 # ==================== 🎛️ 前端控制中心 ====================
 search_mode = st.sidebar.radio("⚙️ 请选择操作模式：", ["🔍 单部精确搜索", "📂 批量扫描本地文件夹"])
 
-# ----------------- 引擎一：手动精确搜索框（完美复活） -----------------
+# ----------------- 引擎一：手动精确搜索框 -----------------
 if search_mode == "🔍 单部精确搜索":
     search_type = st.radio("🧭 影视类型定位器：", ["自动识别", "只查电影", "只查剧集"], horizontal=True)
     movie_input = st.text_input("请输入您要查询的电影或电视剧名字 (英文名)：", key="single_search")
@@ -168,8 +170,9 @@ else:
             path_parts = file.name.replace("\\", "/").split("/")
             filename = path_parts[-1]
             
-            if filename.lower().endswith(video_extensions):
-                # 散装原盘拦截器
+            # 放宽判断：只要文件名包含视频后缀，或者路径中包含蓝光原盘特征目录，一律判定为有效影视
+            if filename.lower().endswith(video_extensions) or "bdmv" in file.name.lower() or "certificate" in file.name.lower():
+                # 散装原盘特征拦截
                 if "bdmv" in file.name.lower() or "certificate" in file.name.lower():
                     if len(path_parts) >= 3:
                         valid_movie_names.append(path_parts[-3])
@@ -193,7 +196,7 @@ else:
                     if i + j < len(valid_movie_names):
                         raw_name = valid_movie_names[i + j]
                         
-                        # 调用全新的硬核正则清洗逻辑
+                        # 调用最新升级的硬核去噪逻辑
                         clean_title = clean_filename_hardcore(raw_name)
                         
                         # 联网请求
@@ -213,6 +216,3 @@ else:
                                 st.markdown(f"**⚠️ {res['title'] if res.get('title') else clean_title}**")
                                 st.error(f"🛑 强力拦截：{res['msg']}")
                             else:
-                                st.image("https://unsplash.com", use_container_width=True)
-                                st.markdown(f"**❌ {clean_title}**")
-                                st.warning("未匹配到，请检查英文名")
