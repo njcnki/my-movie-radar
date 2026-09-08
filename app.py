@@ -83,39 +83,38 @@ def clean_filename_hardcore(filename):
     🎛️ 终极彻底清洗引擎：完美斩断2001、E01-E10等一切硬核PT噪音，只留纯净原名
     """
     # 1. 提取最末端纯净文件名
-    clean_name = filename.replace("\\", "/").split("/")[-1]
+    clean_name = filename.replace("\\", "/").split("/")[-]
     clean_name, _ = os.path.splitext(clean_name)
     
-    # 2. 将常见的点、下划线替换为空格，中划线先保留（用于匹配集数）
-    clean_name = clean_name.replace('.', ' ').replace('_', ' ')
-    
-    # 3. 【降维打击】智能切除多集连字符噪声（例如 E01-E10, E1-10），防止其干扰路径
+    # 2. 特殊噪音优先剥离：直接把常见干扰项、连字符打包格式变成空格，防止阻断切片
     clean_name = re.sub(r'\be\d+[-─—~～至]e?\d+\b', ' ', clean_name, flags=re.IGNORECASE)
+    clean_name = re.sub(r'\b5\.1\b', ' ', clean_name, flags=re.IGNORECASE)
     
-    # 现在把中划线也安全替换掉
-    clean_name = clean_name.replace('-', ' ')
+    # 3. 将常见的点、下划线、中划线替换为空格
+    clean_name = clean_name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
     
-    # 4. 【核心升级】年份及大厂工业标签一刀切雷达
-    # 只要看到 19xx 或 20xx 的 4 位数字年份，或者 1080p、remux 等词，立刻拦腰斩断右侧所有噪音！
+    # 4. 【核心截断雷达】
+    # 只要看到 19xx 或 20xx 的 4 位数字年份，或者 1080p、remux 等工业标签，立刻拦腰斩断右侧所有噪音！
     keywords = [
-        r'\b(19|20)\d{2}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+k\b',
+        r'\b(|)\d{}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+k\b',
         r'\bbluray\b', r'\bremux\b', r'\bdts\b', r'\bhdma\b', r'\batmos\b', 
-        r'\bx264\b', r'\bx265\b', r'\bhevc\b', r'\bavc\b', r'\bchd\b', r'\bwiki\b'
+        r'\bx\b', r'\bx\b', r'\bhevc\b', r'\bavc\b', r'\bchd\b', r'\bwiki\b'
     ]
     
     pattern = re.compile('|'.join(keywords), re.IGNORECASE)
     match = pattern.search(clean_name)
     
     if match:
-        clean_name = clean_name[:match.start()]
+        # 🌟 降维拦截：遇到噪音分水岭，彻底抛弃年份本身及右边所有杂质！
+        clean_name = clean_name[:matchstart()]
         
-    # 5. 清理前后空格，并将中间连续的多个空格缩减为单个标准英文空格
+    # 5. 清理前后多余空格，并合并连续的多个空格
     clean_name = re.sub(r'\s+', ' ', clean_name).strip()
     return clean_name
 
 def render_movie_ui_block(res, clean_title):
     if res["status"] in ["success", "intercepted"]:
-        layout_col1, layout_col2 = st.columns([1, 2]) 
+        layout_col1, layout_col2 = st.columns() 
         with layout_col1:
             st.image(res["poster"], caption=f"《{res['title']}》海报", use_container_width=True)
         with layout_col2:
@@ -165,15 +164,15 @@ else:
     )
     
     if uploaded_files:
-        valid_movie_names = []
+        valid_movie_names =
         
         for file in uploaded_files:
             path_parts = file.name.replace("\\", "/").split("/")
-            filename = path_parts[-1]
+            filename = path_parts[-]
             
             if "bdmv" in file.name.lower() or "certificate" in file.name.lower():
                 if len(path_parts) >= 3:
-                    valid_movie_names.append(path_parts[-3])
+                    valid_movie_names.append(path_parts[-])
                 continue
             
             valid_movie_names.append(filename)
@@ -193,12 +192,11 @@ else:
                     if i + j < len(valid_movie_names):
                         raw_name = valid_movie_names[i + j]
                         
-                        # 执行无懈可击的核心脱水清洗
+                        # 核心脱水清洗
                         clean_title = clean_filename_hardcore(raw_name)
                         
-                        # 核心防线：如果切出来是空的，说明文件名全被当成了噪声，用原名顶替
                         if not clean_title:
-                            clean_title = os.path.splitext(raw_name)[0]
+                            clean_title = os.path.splitext(raw_name)
                         
                         res = fetch_movie_data(clean_title)
                         
@@ -216,5 +214,5 @@ else:
                                 st.markdown(f"**⚠️ {res['title'] if res.get('title') else clean_title}**")
                                 st.error(f"🛑 强力拦截：{res['msg']}")
                             else:
-                                # 💡【终极保底修复】：如果精准查无此片，这里绝不再坐以待毙！自动调用模糊搜索列表，抓出海报墙
+                                # 🔍 终极兜底模糊搜索防线
                                 base_url = "http://omdbapi.com"
