@@ -83,33 +83,31 @@ def clean_filename_hardcore(filename):
     全面拦截并剔除类似于 "2001 E01-E10 JPN BluRay Remux AVC 1080p DTS-HDM 5.1-CHD" 的复杂噪声
     """
     # 1. 移除非法路径残余，只拿最终文件名并去除后缀
-    name = filename.replace("\\", "/").split("/")[-]
+    name = filename.replace("\\", "/").split("/")[-1]
     name, _ = os.path.splitext(name)
     
     # 2. 将点、下划线、中划线统一变成空格，方便正则定位
     name = name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
     
     # 3. 核心：定义 PT 资源常见的各种压制和标签关键词黑名单（转换为小写比对）
-    # 只要在片名中看到这些词或者 4 位数的年份、集数，其右侧的噪音全部一刀切掉！
     keywords = [
-        r'\b\d{}\b', r'\be\d+\b', r'\bs\d+\b', r'\bp\b', r'\bp\b', r'\bk\b',
-        r'\bbluray\b', r'\bremux\b', r'\bdts\b', r'\bhdma\b', r'\batmos\b', r'\bx\b',
-        r'\bx\b', r'\bhevc\b', r'\bavc\b', r'\bjpn\b', r'\bchd\b', r'\bwiki\b', r'\bhdr\b'
+        r'\b\d{4}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+p\b', r'\b\d+k\b',
+        r'\bbluray\b', r'\bremux\b', r'\bdts\b', r'\bhdma\b', r'\batmos\b', r'\bx264\b',
+        r'\bx265\b', r'\bhevc\b', r'\bavc\b', r'\bjpn\b', r'\bchd\b', r'\bwiki\b', r'\bhdr\b'
     ]
     
-    # 合并成一个强大的正则表达式守护神
     pattern = re.compile('|'.join(keywords), re.IGNORECASE)
     match = pattern.search(name)
     
     if match:
         # 抓取到首个噪声标签的位置，直接拦截左侧切片
-        name = name[:matchstart()]
+        name = name[:match.start()]
         
     return name.strip()
 
 def render_movie_ui_block(res, clean_title):
     if res["status"] in ["success", "intercepted"]:
-        layout_col1, layout_col2 = st.columns() 
+        layout_col1, layout_col2 = st.columns([1, 2]) 
         with layout_col1:
             st.image(res["poster"], caption=f"《{res['title']}》海报", use_container_width=True)
         with layout_col2:
@@ -137,6 +135,8 @@ def render_movie_ui_block(res, clean_title):
     else:
         st.error(f"❌ 线上未匹配到与「{clean_title}」相关的影视信息，请检查英文名命名结构。")
 
+import os
+
 # ==================== 🎛️ 前端控制中心 ====================
 search_mode = st.sidebar.radio("⚙️ 请选择操作模式：", ["🔍 单部精确搜索", "📂 批量扫描本地文件夹"])
 
@@ -162,17 +162,17 @@ else:
     
     if uploaded_files:
         video_extensions = ('.mp4', '.mkv', '.avi', '.iso', '.m2ts')
-        valid_movie_names =
+        valid_movie_names = []
         
         for file in uploaded_files:
             path_parts = file.name.replace("\\", "/").split("/")
-            filename = path_parts[-]
+            filename = path_parts[-1]
             
             if filename.lower().endswith(video_extensions):
                 # 散装原盘拦截器
                 if "bdmv" in file.name.lower() or "certificate" in file.name.lower():
                     if len(path_parts) >= 3:
-                        valid_movie_names.append(path_parts[-])
+                        valid_movie_names.append(path_parts[-3])
                     continue
                 valid_movie_names.append(file.name)
                 
@@ -193,7 +193,7 @@ else:
                     if i + j < len(valid_movie_names):
                         raw_name = valid_movie_names[i + j]
                         
-                        # 调用全新的硬核正则清洗逻辑！
+                        # 调用全新的硬核正则清洗逻辑
                         clean_title = clean_filename_hardcore(raw_name)
                         
                         # 联网请求
@@ -215,3 +215,4 @@ else:
                             else:
                                 st.image("https://unsplash.com", use_container_width=True)
                                 st.markdown(f"**❌ {clean_title}**")
+                                st.warning("未匹配到，请检查英文名")
