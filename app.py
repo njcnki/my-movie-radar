@@ -1,19 +1,20 @@
 import streamlit as st
 import requests
 import math
+import re
 
 # ==================== 🛠️ 用户配置区 ====================
 OMDB_API_KEY = "f22cac4f"  # 你的 8 位免费 Key
-ALPHA = 0.7  # 电影大众占比
-BETA = 0.3   # 电影专家占比
+ALPHA = 0.7  # 电影加权：大众占比
+BETA = 0.3   # 电影加权：专家占比
 # =======================================================
 
 st.set_page_config(page_title="7:3 智能影视资产雷达", page_icon="🎬", layout="wide")
 
 st.title("🎬 智能影视评分 7:3 黄金加权严选雷达")
-st.markdown("支持**手动英文搜索** 与 **本地文件夹一键平铺盲刷海报墙**。")
+st.markdown("已完美融合 **手动搜索框** 与 **本地多格式/硬核PT命名文件海报墙盲刷引擎**。")
 
-@st.cache_data(ttl=3600)  # 缓存 1 小时，保护 Key 额度
+@st.cache_data(ttl=3600)
 def fetch_movie_data(title, search_type="自动识别"):
     base_url = "http://omdbapi.com"
     param_t = "?t=" + requests.utils.quote(title)
@@ -76,16 +77,39 @@ def fetch_movie_data(title, search_type="自动识别"):
         pass
     return {"status": "not_found"}
 
-def clean_filename(filename):
-    clean = filename.split('.1080p').split('.2160p').split('.Bluray').split('.UHD').split('.Remux').split('.S0')
-    return clean.replace('.', ' ').replace('_', ' ').strip()
+def clean_filename_hardcore(filename):
+    """
+    🎛️ 硬核正则表达式去噪过滤器
+    全面拦截并剔除类似于 "2001 E01-E10 JPN BluRay Remux AVC 1080p DTS-HDM 5.1-CHD" 的复杂噪声
+    """
+    # 1. 移除非法路径残余，只拿最终文件名并去除后缀
+    name = filename.replace("\\", "/").split("/")[-]
+    name, _ = os.path.splitext(name)
+    
+    # 2. 将点、下划线、中划线统一变成空格，方便正则定位
+    name = name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
+    
+    # 3. 核心：定义 PT 资源常见的各种压制和标签关键词黑名单（转换为小写比对）
+    # 只要在片名中看到这些词或者 4 位数的年份、集数，其右侧的噪音全部一刀切掉！
+    keywords = [
+        r'\b\d{}\b', r'\be\d+\b', r'\bs\d+\b', r'\bp\b', r'\bp\b', r'\bk\b',
+        r'\bbluray\b', r'\bremux\b', r'\bdts\b', r'\bhdma\b', r'\batmos\b', r'\bx\b',
+        r'\bx\b', r'\bhevc\b', r'\bavc\b', r'\bjpn\b', r'\bchd\b', r'\bwiki\b', r'\bhdr\b'
+    ]
+    
+    # 合并成一个强大的正则表达式守护神
+    pattern = re.compile('|'.join(keywords), re.IGNORECASE)
+    match = pattern.search(name)
+    
+    if match:
+        # 抓取到首个噪声标签的位置，直接拦截左侧切片
+        name = name[:matchstart()]
+        
+    return name.strip()
 
 def render_movie_ui_block(res, clean_title):
-    """
-    统一渲染影视卡片面板
-    """
     if res["status"] in ["success", "intercepted"]:
-        layout_col1, layout_col2 = st.columns([1, 2]) 
+        layout_col1, layout_col2 = st.columns() 
         with layout_col1:
             st.image(res["poster"], caption=f"《{res['title']}》海报", use_container_width=True)
         with layout_col2:
@@ -111,12 +135,12 @@ def render_movie_ui_block(res, clean_title):
             st.markdown("#### 📝 剧情梗概")
             st.info(res["plot"])
     else:
-        st.error(f"❌ 线上未匹配到与「{clean_title}」相关的影视信息。")
+        st.error(f"❌ 线上未匹配到与「{clean_title}」相关的影视信息，请检查英文名命名结构。")
 
 # ==================== 🎛️ 前端控制中心 ====================
 search_mode = st.sidebar.radio("⚙️ 请选择操作模式：", ["🔍 单部精确搜索", "📂 批量扫描本地文件夹"])
 
-# ----------------- 引擎一：手动精确搜索框 -----------------
+# ----------------- 引擎一：手动精确搜索框（完美复活） -----------------
 if search_mode == "🔍 单部精确搜索":
     search_type = st.radio("🧭 影视类型定位器：", ["自动识别", "只查电影", "只查剧集"], horizontal=True)
     movie_input = st.text_input("请输入您要查询的电影或电视剧名字 (英文名)：", key="single_search")
@@ -130,7 +154,6 @@ if search_mode == "🔍 单部精确搜索":
 # ----------------- 引擎二：本地文件夹批量刷盘 -----------------
 else:
     st.subheader("📂 本地影视资产海报墙")
-    # 破除浏览器大小限制：告诉 Streamlit，我们只是读取空文件壳，不读取实际数据
     uploaded_files = st.file_uploader(
         "选择或拖拽您的 NAS / 本地电影文件夹到这里：", 
         accept_multiple_files=True, 
@@ -139,21 +162,19 @@ else:
     
     if uploaded_files:
         video_extensions = ('.mp4', '.mkv', '.avi', '.iso', '.m2ts')
-        valid_movie_names = []
+        valid_movie_names =
         
         for file in uploaded_files:
-            # 兼容各类型文件相对路径，提取顶级目录名或纯文件名
             path_parts = file.name.replace("\\", "/").split("/")
-            filename = path_parts[-1]
+            filename = path_parts[-]
             
             if filename.lower().endswith(video_extensions):
-                # 智能识别 BDMV 散装蓝光原盘：如果路径里带 BDMV，直接提取它上级目录的名字作为片名
+                # 散装原盘拦截器
                 if "bdmv" in file.name.lower() or "certificate" in file.name.lower():
                     if len(path_parts) >= 3:
-                        # 散装原盘外层根目录名字
-                        valid_movie_names.append(path_parts[-3])
+                        valid_movie_names.append(path_parts[-])
                     continue
-                valid_movie_names.append(filename)
+                valid_movie_names.append(file.name)
                 
         # 去重
         valid_movie_names = list(set(valid_movie_names))
@@ -171,7 +192,9 @@ else:
                 for j in range(columns_per_row):
                     if i + j < len(valid_movie_names):
                         raw_name = valid_movie_names[i + j]
-                        clean_title = clean_filename(raw_name)
+                        
+                        # 调用全新的硬核正则清洗逻辑！
+                        clean_title = clean_filename_hardcore(raw_name)
                         
                         # 联网请求
                         res = fetch_movie_data(clean_title)
@@ -192,5 +215,3 @@ else:
                             else:
                                 st.image("https://unsplash.com", use_container_width=True)
                                 st.markdown(f"**❌ {clean_title}**")
-                                st.warning("未匹配到，请检查英文名")
-                st.markdown("---")
