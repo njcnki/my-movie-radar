@@ -93,7 +93,7 @@ if movie_input:
     st.markdown("---")
     if res["status"] == "success":
         # 🎬 引入左右分栏：左边放海报封面，右边放跑分数据
-        layout_col1, layout_col2 = st.columns() # 1:2 的黄金视觉比例
+        layout_col1, layout_col2 = st.columns(2) # 1:2 的黄金视觉比例
         
         with layout_col1:
             # 渲染高清大封面
