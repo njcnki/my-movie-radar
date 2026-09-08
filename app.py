@@ -80,41 +80,46 @@ def fetch_movie_data(title, search_type="自动识别"):
 
 def clean_filename_hardcore(filename):
     """
-    🎛️ 终极彻底清洗引擎：完美斩断2001、E01-E10等一切硬核PT噪音，只留纯净原名
+    🎛️ 终极彻底清洗引擎：完美斩断 4位年份、E01-E10等一切硬核PT噪音，只留纯净原名
     """
-    # 1. 提取最末端纯净文件名
-    clean_name = filename.replace("\\", "/").split("/")[-]
+    # 1. 强行隔离路径符号，精确提取最末端的文件名
+    clean_name = filename.replace("\\", "/").split("/")[-1]
+    
+    # 2. 剥离标准物理文件扩展名
     clean_name, _ = os.path.splitext(clean_name)
     
-    # 2. 特殊噪音优先剥离：直接把常见干扰项、连字符打包格式变成空格，防止阻断切片
-    clean_name = re.sub(r'\be\d+[-─—~～至]e?\d+\b', ' ', clean_name, flags=re.IGNORECASE)
-    clean_name = re.sub(r'\b5\.1\b', ' ', clean_name, flags=re.IGNORECASE)
+    # 3. 将常见的点、下划线替换为空格，中划线先保留用于匹配连字符集数
+    clean_name = clean_name.replace('.', ' ').replace('_', ' ')
     
-    # 3. 将常见的点、下划线、中划线替换为空格
-    clean_name = clean_name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
+    # 4. 【特种爆破】针对连字符打包集数（如 E01-E10、E1-10、S01-S03）直接先切除右侧所有噪声
+    match_episodes = re.search(r'\b[es]\d+[-─—~～至][es]?\d+\b', clean_name, flags=re.IGNORECASE)
+    if match_episodes:
+        clean_name = clean_name[:match_episodes.start()]
     
-    # 4. 【核心截断雷达】
+    # 现在将中划线也安全替换掉
+    clean_name = clean_name.replace('-', ' ')
+    
+    # 5. 【核心截断雷达】
     # 只要看到 19xx 或 20xx 的 4 位数字年份，或者 1080p、remux 等工业标签，立刻拦腰斩断右侧所有噪音！
     keywords = [
-        r'\b(|)\d{}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+k\b',
+        r'\b(19|20)\d{2}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+k\b',
         r'\bbluray\b', r'\bremux\b', r'\bdts\b', r'\bhdma\b', r'\batmos\b', 
-        r'\bx\b', r'\bx\b', r'\bhevc\b', r'\bavc\b', r'\bchd\b', r'\bwiki\b'
+        r'\bx264\b', r'\bx265\b', r'\bhevc\b', r'\bavc\b', r'\bchd\b', r'\bwiki\b'
     ]
     
     pattern = re.compile('|'.join(keywords), re.IGNORECASE)
     match = pattern.search(clean_name)
     
     if match:
-        # 🌟 降维拦截：遇到噪音分水岭，彻底抛弃年份本身及右边所有杂质！
-        clean_name = clean_name[:matchstart()]
+        clean_name = clean_name[:match.start()]
         
-    # 5. 清理前后多余空格，并合并连续的多个空格
+    # 6. 清理前后多余空格，并合并内部连续的多个空格
     clean_name = re.sub(r'\s+', ' ', clean_name).strip()
     return clean_name
 
 def render_movie_ui_block(res, clean_title):
     if res["status"] in ["success", "intercepted"]:
-        layout_col1, layout_col2 = st.columns() 
+        layout_col1, layout_col2 = st.columns([1, 2]) 
         with layout_col1:
             st.image(res["poster"], caption=f"《{res['title']}》海报", use_container_width=True)
         with layout_col2:
@@ -164,19 +169,21 @@ else:
     )
     
     if uploaded_files:
-        valid_movie_names =
+        valid_movie_names = []
         
         for file in uploaded_files:
             path_parts = file.name.replace("\\", "/").split("/")
-            filename = path_parts[-]
+            filename = path_parts[-1]
             
+            # 兼容散装原盘逻辑：如果路径中深藏 BDMV 目录，则逆向向上数层级抓取真正的影片根目录名
             if "bdmv" in file.name.lower() or "certificate" in file.name.lower():
                 if len(path_parts) >= 3:
-                    valid_movie_names.append(path_parts[-])
+                    valid_movie_names.append(path_parts[-3])
                 continue
             
             valid_movie_names.append(filename)
                 
+        # 整体去重
         valid_movie_names = list(set(valid_movie_names))
         
         if not valid_movie_names:
@@ -185,6 +192,7 @@ else:
             st.subheader(f"📊 成功捕获本地影视资源 {len(valid_movie_names)} 部：")
             st.markdown("---")
             
+            # 4列网格平铺海报墙布局
             columns_per_row = 4
             for i in range(0, len(valid_movie_names), columns_per_row):
                 cols = st.columns(columns_per_row)
@@ -192,11 +200,12 @@ else:
                     if i + j < len(valid_movie_names):
                         raw_name = valid_movie_names[i + j]
                         
-                        # 核心脱水清洗
+                        # 核心大清洗：将类似于 "Band Of Brothers 2001 E01-E10..." 彻底洗白为 "Band Of Brothers"
                         clean_title = clean_filename_hardcore(raw_name)
                         
+                        # 保底机制：若彻底切成空字串，则用无后缀原名作为关键词顶替
                         if not clean_title:
-                            clean_title = os.path.splitext(raw_name)
+                            clean_title = os.path.splitext(raw_name)[0]
                         
                         res = fetch_movie_data(clean_title)
                         
@@ -211,8 +220,3 @@ else:
                             elif res["status"] == "intercepted":
                                 p_url = res["poster"] if (res.get("poster") and res["poster"] != "N/A") else "https://unsplash.com"
                                 st.image(p_url, use_container_width=True)
-                                st.markdown(f"**⚠️ {res['title'] if res.get('title') else clean_title}**")
-                                st.error(f"🛑 强力拦截：{res['msg']}")
-                            else:
-                                # 🔍 终极兜底模糊搜索防线
-                                base_url = "http://omdbapi.com"
