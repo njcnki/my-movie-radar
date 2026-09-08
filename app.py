@@ -82,19 +82,14 @@ def clean_filename_hardcore(filename):
     """
     🎛️ 终极自适应：专门剥离多层虚拟路径，精准斩断 PT 压制组复杂后缀
     """
-    # 1. 强制洗白 Windows/Linux 混淆的路径符号，提取最纯净的文件尾部名
     clean_name = filename.replace("\\", "/").split("/")[-1]
-    
-    # 2. 剥离点、下划线、中划线，统一转换为空格
+    clean_name, _ = os.path.splitext(clean_name)
     clean_name = clean_name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
     
-    # 3. 剥离常见的物理视频扩展名（防后缀干扰正则）
     for ext in ['mkv', 'mp4', 'avi', 'iso', 'm2ts']:
         if clean_name.lower().endswith(ext):
             clean_name = clean_name[:-len(ext)].strip()
 
-    # 4. 精准正则定位雷达：匹配4位年份、EXX-EXX、SXX、1080p、Remux等PT核心分水岭标签
-    # 只要撞上其中任意一个词，立刻以此词的起始位置作为整条街的终点，切除右边所有的噪音
     keywords = [
         r'\b\d{4}\b', r'\be\d+\b', r'\bs\d+\b', r'\b\d+p\b', r'\b\d+k\b',
         r'\bbluray\b', r'\bremux\b', r'\bdts\b', r'\bhdma\b', r'\batmos\b', 
@@ -170,16 +165,13 @@ else:
             path_parts = file.name.replace("\\", "/").split("/")
             filename = path_parts[-1]
             
-            # 放宽判断：只要文件名包含视频后缀，或者路径中包含蓝光原盘特征目录，一律判定为有效影视
             if filename.lower().endswith(video_extensions) or "bdmv" in file.name.lower() or "certificate" in file.name.lower():
-                # 散装原盘特征拦截
                 if "bdmv" in file.name.lower() or "certificate" in file.name.lower():
                     if len(path_parts) >= 3:
                         valid_movie_names.append(path_parts[-3])
                     continue
                 valid_movie_names.append(file.name)
                 
-        # 去重
         valid_movie_names = list(set(valid_movie_names))
         
         if not valid_movie_names:
@@ -188,18 +180,13 @@ else:
             st.subheader(f"📊 成功捕获本地影视资源 {len(valid_movie_names)} 部：")
             st.markdown("---")
             
-            # 4列网格平铺海报墙
             columns_per_row = 4
             for i in range(0, len(valid_movie_names), columns_per_row):
                 cols = st.columns(columns_per_row)
                 for j in range(columns_per_row):
                     if i + j < len(valid_movie_names):
                         raw_name = valid_movie_names[i + j]
-                        
-                        # 调用最新升级的硬核去噪逻辑
                         clean_title = clean_filename_hardcore(raw_name)
-                        
-                        # 联网请求
                         res = fetch_movie_data(clean_title)
                         
                         with cols[j]:
@@ -216,3 +203,7 @@ else:
                                 st.markdown(f"**⚠️ {res['title'] if res.get('title') else clean_title}**")
                                 st.error(f"🛑 强力拦截：{res['msg']}")
                             else:
+                                st.image("https://unsplash.com", use_container_width=True)
+                                st.markdown(f"**❌ {clean_title}**")
+                                st.warning("未匹配到，请检查英文名")
+                st.markdown("---")
