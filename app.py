@@ -11,18 +11,26 @@ BETA = 0.3   # 电影加权：专家占比
 st.set_page_config(page_title="7:3 智能影视严选雷达", page_icon="🎬", layout="wide")
 
 st.title("🎬 智能影视评分 7:3 黄金加权严选雷达")
-st.markdown("请输入影视作品的**标准官方英文名**。系统将自动执行自适应双轨加权脱水算法。")
+st.markdown("请输入影视作品的**标准英文名** 或 **IMDb编号 (如 tt23736044)**。")
 st.caption("电影最低门槛: 25,000 票 | 剧集最低门槛: 10,000 票 (完全平铺四个体验梯队)")
 
-def calculate_consensus_score(title, search_type):
+def fetch_movie_data(user_input, search_type):
     base_url = "http://omdbapi.com"
-    param_t = "?t=" + requests.utils.quote(title)
+    
+    # 🌟 核心自愈漏洞修复：智能识别是名字还是 tt 编号
+    clean_input = user_input.strip()
+    if clean_input.lower().startswith("tt"):
+        # 如果是 tt 编号，强制切换为 i= 参数锁定唯一身份证
+        param_core = "?i=" + clean_input
+    else:
+        # 如果是普通英文名，保持 t= 参数进行标题模糊匹配
+        param_core = "?t=" + requests.utils.quote(clean_input)
     
     param_type = ""
     if search_type == "只查电影": param_type = "&type=movie"
     elif search_type == "只查剧集": param_type = "&type=series"
         
-    url = base_url + param_t + param_type + "&apikey=" + OMDB_API_KEY
+    url = base_url + param_core + param_type + "&apikey=" + OMDB_API_KEY
     try:
         response = requests.get(url, timeout=5)
         data = response.json()
@@ -77,34 +85,33 @@ def calculate_consensus_score(title, search_type):
     return {"status": "not_found"}
 
 def get_other_versions(title):
-    """
-    备选墙数据探测：抓取同名其他版本
-    """
+    # 如果用户本身输入的就是 tt 编号，不调用底部相关模糊墙推荐，直接略过
+    if title.strip().lower().startswith("tt"):
+        return []
     url = f"http://omdbapi.com?s={requests.utils.quote(title)}&apikey={OMDB_API_KEY}"
     try:
         res = requests.get(url, timeout=5).json()
         if res.get("Response") == "True":
-            return res.get("Search", [])[:5]  # 取前5个做横向海报墙
+            return res.get("Search", [])[:5]
     except:
         pass
     return []
 
-# 🎛️ 完美恢复：原来的电影剧集分开搜索开关
+# 🎛️ 前端组件保持原汁原味
 search_type = st.radio(
     "🧭 影视类型定位器 (遇到同名冲突时手动切换锁定):",
     ["自动识别", "只查电影", "只查剧集"], horizontal=True
 )
 
-movie_input = st.text_input("请输入电影或电视剧的标准英文名：", key="search_input")
+movie_input = st.text_input("请输入电影或电视剧的标准英文名或 tt 编号：", key="search_input")
 
 if movie_input:
-    clean_input = movie_input.strip()
+    raw_input = movie_input.strip()
     with st.spinner("正在连接全网活数据池，执行自适应双轨算法脱水..."):
-        res = calculate_consensus_score(clean_input, search_type)
+        res = fetch_movie_data(raw_input, search_type)
         
     st.markdown("---")
     
-    # 核心区域：渲染你最习惯的直出精准档案
     if res["status"] in ["success", "intercepted"]:
         layout_col1, layout_col2 = st.columns(2) 
         
@@ -139,25 +146,26 @@ if movie_input:
             if res["status"] == "success":
                 st.caption(f"🔧 **底层数据链监控**：{res['details']}")
                 
-        # 🌟 底部追加：多版本同名备选墙（绝不干扰上方的正常搜索）
-        st.markdown("---")
-        st.markdown("### 🗺️ 全网同名其他版本参考墙")
-        st.caption("如果你发现上方出来的不是你想找的那一版，请比对下方年份并**双击复制框内名字**重新查询：")
-        
-        other_list = get_other_versions(clean_input)
-        if other_list:
-            cols = st.columns(len(other_list))
-            for idx, item in enumerate(other_list):
-                with cols[idx]:
-                    p_url = item.get("Poster", "N/A")
-                    if p_url == "N/A" or not p_url.startswith("http"):
-                        p_url = "https://unsplash.com"
-                    st.image(p_url, use_container_width=True)
-                    st.markdown(f"**{item.get('Title')}**")
-                    st.caption(f"📅 {item.get('Year')} | 类别: {'电影' if item.get('Type')=='movie' else '剧集'}")
-                    st.code(item.get('Title'), language="text") # 一键复制框
-        else:
-            st.caption("未在全网探测到其他同名衍生版本。")
+        # 底部追加：多版本同名备选墙
+        if not raw_input.lower().startswith("tt"):
+            st.markdown("---")
+            st.markdown("### 🗺️ 全网同名其他版本参考墙")
+            st.caption("如果你发现上方出来的不是你想找的那一版，请比对下方年份并**双击复制框内名字**重新查询：")
+            
+            other_list = get_other_versions(raw_input)
+            if other_list:
+                cols = st.columns(len(other_list))
+                for idx, item in enumerate(other_list):
+                    with cols[idx]:
+                        p_url = item.get("Poster", "N/A")
+                        if p_url == "N/A" or not p_url.startswith("http"):
+                            p_url = "https://unsplash.com"
+                        st.image(p_url, use_container_width=True)
+                        st.markdown(f"**{item.get('Title')}**")
+                        st.caption(f"📅 {item.get('Year')} | 类别: {'电影' if item.get('Type')=='movie' else '剧集'}")
+                        st.code(item.get('Title'), language="text")
+            else:
+                st.caption("未在全网探测到其他同名衍生版本。")
             
     else:
-        st.error("❌ 线上未识别到该影片信息，请检查标准英文名称是否输入正确。")
+        st.error("❌ 线上未识别到该影片信息，请检查标准英文名称或 tt 编号是否输入正确。")
