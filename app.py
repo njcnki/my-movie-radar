@@ -11,19 +11,17 @@ BETA = 0.3   # 电影加权：专家占比
 st.set_page_config(page_title="7:3 智能影视严选雷达", page_icon="🎬", layout="wide")
 
 st.title("🎬 智能影视评分 7:3 黄金加权严选雷达")
-st.markdown("请输入影视作品的**标准英文名** 或 **IMDb编号 (如 tt23736044)**。")
+st.markdown("支持标准英文名搜索。遇到同名、真人版/动画版冲突时，**直接点击底部参考墙海报即可瞬间切换主视图跑分**。")
 st.caption("电影最低门槛: 25,000 票 | 剧集最低门槛: 10,000 票 (完全平铺四个体验梯队)")
 
 def fetch_movie_data(user_input, search_type):
     base_url = "http://omdbapi.com"
     
-    # 🌟 核心自愈漏洞修复：智能识别是名字还是 tt 编号
     clean_input = user_input.strip()
+    # 智能识别：如果是点击海报传过来的 tt 身份证号，走 i= 绝对穿透轨道；否则走名字匹配
     if clean_input.lower().startswith("tt"):
-        # 如果是 tt 编号，强制切换为 i= 参数锁定唯一身份证
         param_core = "?i=" + clean_input
     else:
-        # 如果是普通英文名，保持 t= 参数进行标题模糊匹配
         param_core = "?t=" + requests.utils.quote(clean_input)
     
     param_type = ""
@@ -65,7 +63,7 @@ def fetch_movie_data(user_input, search_type):
                 votes_modifier = 1.5 if votes >= 100000 else (-3.0 if votes < 25000 else 0.0)
                 cs_score = base_score + season_bonus + votes_modifier
                 if cs_score > 100.0: cs_score = 100.0
-                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | 总季数: {seasons}季 | 投票基数修正: {votes_modifier:+}"
+                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | 总季数: {seasons}季 | 修正: {votes_modifier:+}"
             else:
                 raw_metascore = data.get("Metascore", "N/A")
                 metascore = 70.0 if raw_metascore == "N/A" else float(raw_metascore)
@@ -85,33 +83,48 @@ def fetch_movie_data(user_input, search_type):
     return {"status": "not_found"}
 
 def get_other_versions(title):
-    # 如果用户本身输入的就是 tt 编号，不调用底部相关模糊墙推荐，直接略过
+    # 如果用户搜的是具体 ID，底部不需要重复显示关联墙
     if title.strip().lower().startswith("tt"):
         return []
     url = f"http://omdbapi.com?s={requests.utils.quote(title)}&apikey={OMDB_API_KEY}"
     try:
         res = requests.get(url, timeout=5).json()
         if res.get("Response") == "True":
-            return res.get("Search", [])[:5]
+            return res.get("Search", [])[:6] # 横向支持平铺最多 6 个版本
     except:
         pass
     return []
 
-# 🎛️ 前端组件保持原汁原味
+# 🎛️ 前端控制模块
 search_type = st.radio(
-    "🧭 影视类型定位器 (遇到同名冲突时手动切换锁定):",
+    "🧭 影视类型定位器 (手动切换锁定)：",
     ["自动识别", "只查电影", "只查剧集"], horizontal=True
 )
 
-movie_input = st.text_input("请输入电影或电视剧的标准英文名或 tt 编号：", key="search_input")
+# 🌟 引入 Streamlit 的 Session 会话机制，用来接住用户点击海报时传回来的唯一 ID 锁
+if "search_query" not in st.session_state:
+    st.session_state["search_query"] = ""
 
-if movie_input:
-    raw_input = movie_input.strip()
+# 输入框绑定全局状态
+movie_input = st.text_input(
+    "请输入电影或电视剧的标准英文名：", 
+    value=st.session_state["search_query"],
+    key="movie_input_box"
+)
+
+# 如果输入框的内容改变了，同步刷新状态
+if movie_input != st.session_state["search_query"]:
+    st.session_state["search_query"] = movie_input
+
+if st.session_state["search_query"]:
+    current_target = st.session_state["search_query"].strip()
+    
     with st.spinner("正在连接全网活数据池，执行自适应双轨算法脱水..."):
-        res = fetch_movie_data(raw_input, search_type)
+        res = fetch_movie_data(current_target, search_type)
         
     st.markdown("---")
     
+    # 核心精准视图展示区
     if res["status"] in ["success", "intercepted"]:
         layout_col1, layout_col2 = st.columns(2) 
         
@@ -135,7 +148,7 @@ if movie_input:
                 st.markdown(f"**⏳ 类型/时长**：{res['genre']} / {res['runtime']}")
             with meta_col2:
                 st.markdown(f"**🌍 国家/地区**：{res['country']}")
-                st.markdown(f"**🎥 导演/主创**：{res['director']}")
+                st.markdown(f"**🌍 导演/主创**：{res['director']}")
                 if res['type'] == "电影": st.markdown(f"**💰 院线票房**：{res['boxoffice']}")
                 else: st.markdown(f"**📺 影视类别**：电视剧/剧集")
                     
@@ -146,13 +159,13 @@ if movie_input:
             if res["status"] == "success":
                 st.caption(f"🔧 **底层数据链监控**：{res['details']}")
                 
-        # 底部追加：多版本同名备选墙
-        if not raw_input.lower().startswith("tt"):
+        # 🌟 底部追加：多版本同名互动备选墙（核心魔改点！）
+        # 如果当前搜索的不是纯 tt 编号，自动把同名池子捞出来平铺
+        if not current_target.lower().startswith("tt"):
             st.markdown("---")
-            st.markdown("### 🗺️ 全网同名其他版本参考墙")
-            st.caption("如果你发现上方出来的不是你想找的那一版，请比对下方年份并**双击复制框内名字**重新查询：")
+            st.markdown("### 🗺️ 全网同名其他版本参考墙 (看中哪个，点击下方按钮即可秒切上方主视角)")
             
-            other_list = get_other_versions(raw_input)
+            other_list = get_other_versions(current_target)
             if other_list:
                 cols = st.columns(len(other_list))
                 for idx, item in enumerate(other_list):
@@ -162,8 +175,12 @@ if movie_input:
                             p_url = "https://unsplash.com"
                         st.image(p_url, use_container_width=True)
                         st.markdown(f"**{item.get('Title')}**")
-                        st.caption(f"📅 {item.get('Year')} | 类别: {'电影' if item.get('Type')=='movie' else '剧集'}")
-                        st.code(item.get('Title'), language="text")
+                        st.caption(f"📅 {item.get('Year')} | {'电影' if item.get('Type')=='movie' else '剧集'}")
+                        
+                        # 💡 核心高光动作：把按钮做在海报卡片最下方，点击瞬间将唯一 ID 逆向塞入全局输入框状态
+                        if st.button("🎯 点此查看此版本跑分", key=f"select_{item.get('imdbID')}"):
+                            st.session_state["search_query"] = item.get("imdbID")
+                            st.rerun() # 触发网页一秒重绘，让主视角强制吃入此 ID
             else:
                 st.caption("未在全网探测到其他同名衍生版本。")
             
