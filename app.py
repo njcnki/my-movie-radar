@@ -11,7 +11,7 @@ BETA = 0.3   # 电影加权：专家占比
 st.set_page_config(page_title="7:3 智能影视严选雷达", page_icon="🎬", layout="wide")
 
 st.title("🎬 智能影视评分 7:3 黄金加权严选雷达")
-st.markdown("支持标准英文名搜索。遇到同名、真人版/动画版冲突时，**直接点击底部参考墙海报即可瞬间切换主视图跑分**。")
+st.markdown("请输入影视作品的英文名。遇到同名、真人版/动画版冲突时，**直接点击底部参考墙海报即可瞬间切换主视图跑分**。")
 st.caption("电影最低门槛: 25,000 票 | 剧集最低门槛: 10,000 票 (完全平铺四个体验梯队)")
 
 def fetch_movie_data(user_input, search_type):
@@ -83,36 +83,36 @@ def fetch_movie_data(user_input, search_type):
     return {"status": "not_found"}
 
 def get_other_versions(title):
-    # 如果用户搜的是具体 ID，底部不需要重复显示关联墙
     if title.strip().lower().startswith("tt"):
         return []
     url = f"http://omdbapi.com?s={requests.utils.quote(title)}&apikey={OMDB_API_KEY}"
     try:
         res = requests.get(url, timeout=5).json()
         if res.get("Response") == "True":
-            return res.get("Search", [])[:6] # 横向支持平铺最多 6 个版本
+            return res.get("Search", [])[:6]
     except:
         pass
     return []
 
-# 🎛️ 前端控制模块
+# ==================== 🎛️ 状态双向绑定核心初始化 ====================
+if "search_query" not in st.session_state:
+    st.session_state["search_query"] = ""
+if "query_version" not in st.session_state:
+    st.session_state["query_version"] = 0  # 动态输入框版本标签
+
 search_type = st.radio(
     "🧭 影视类型定位器 (手动切换锁定)：",
     ["自动识别", "只查电影", "只查剧集"], horizontal=True
 )
 
-# 🌟 引入 Streamlit 的 Session 会话机制，用来接住用户点击海报时传回来的唯一 ID 锁
-if "search_query" not in st.session_state:
-    st.session_state["search_query"] = ""
-
-# 输入框绑定全局状态
+# 🌟 核心改进点：动态赋能 Key 标签，让网页彻底忘掉之前的旧缓存输入
 movie_input = st.text_input(
     "请输入电影或电视剧的标准英文名：", 
     value=st.session_state["search_query"],
-    key="movie_input_box"
+    key=f"input_box_v_{st.session_state['query_version']}"
 )
 
-# 如果输入框的内容改变了，同步刷新状态
+# 只要用户手动在框里打字了，立刻接住状态
 if movie_input != st.session_state["search_query"]:
     st.session_state["search_query"] = movie_input
 
@@ -124,7 +124,7 @@ if st.session_state["search_query"]:
         
     st.markdown("---")
     
-    # 核心精准视图展示区
+    # 精准主视图展示区
     if res["status"] in ["success", "intercepted"]:
         layout_col1, layout_col2 = st.columns(2) 
         
@@ -148,7 +148,7 @@ if st.session_state["search_query"]:
                 st.markdown(f"**⏳ 类型/时长**：{res['genre']} / {res['runtime']}")
             with meta_col2:
                 st.markdown(f"**🌍 国家/地区**：{res['country']}")
-                st.markdown(f"**🌍 导演/主创**：{res['director']}")
+                st.markdown(f"**🎥 导演/主创**：{res['director']}")
                 if res['type'] == "电影": st.markdown(f"**💰 院线票房**：{res['boxoffice']}")
                 else: st.markdown(f"**📺 影视类别**：电视剧/剧集")
                     
@@ -159,8 +159,7 @@ if st.session_state["search_query"]:
             if res["status"] == "success":
                 st.caption(f"🔧 **底层数据链监控**：{res['details']}")
                 
-        # 🌟 底部追加：多版本同名互动备选墙（核心魔改点！）
-        # 如果当前搜索的不是纯 tt 编号，自动把同名池子捞出来平铺
+        # 底部追加：多版本同名互动备选墙
         if not current_target.lower().startswith("tt"):
             st.markdown("---")
             st.markdown("### 🗺️ 全网同名其他版本参考墙 (看中哪个，点击下方按钮即可秒切上方主视角)")
@@ -177,12 +176,13 @@ if st.session_state["search_query"]:
                         st.markdown(f"**{item.get('Title')}**")
                         st.caption(f"📅 {item.get('Year')} | {'电影' if item.get('Type')=='movie' else '剧集'}")
                         
-                        # 💡 核心高光动作：把按钮做在海报卡片最下方，点击瞬间将唯一 ID 逆向塞入全局输入框状态
-                        if st.button("🎯 点此查看此版本跑分", key=f"select_{item.get('imdbID')}"):
+                        # 💡 终极魔改核心：点击时同时更新ID和Version标签，强行撕毁输入框的历史文本缓存！
+                        if st.button("🎯 查看此版本跑分", key=f"select_{item.get('imdbID')}"):
                             st.session_state["search_query"] = item.get("imdbID")
-                            st.rerun() # 触发网页一秒重绘，让主视角强制吃入此 ID
+                            st.session_state["query_version"] += 1  # 标签升轨，摧毁旧输入框缓存
+                            st.rerun()
             else:
                 st.caption("未在全网探测到其他同名衍生版本。")
             
     else:
-        st.error("❌ 线上未识别到该影片信息，请检查标准英文名称或 tt 编号是否输入正确。")
+        st.error("❌ 线上未识别到该影视信息，请检查标准英文名称或 tt 编号是否输入正确。")
