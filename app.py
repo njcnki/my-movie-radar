@@ -11,14 +11,13 @@ BETA = 0.3   # 电影加权：专家占比
 st.set_page_config(page_title="7:3 智能影视严选雷达", page_icon="🎬", layout="wide")
 
 st.title("🎬 智能影视评分 7:3 黄金加权严选雷达")
-st.markdown("请输入影视作品的英文名。遇到同名、真人版/动画版冲突时，**直接点击底部参考墙海报即可瞬间切换主视图跑分**。")
-st.caption("电影最低门槛: 25,000 票 | 剧集最低门槛: 10,000 票 (完全平铺四个体验梯队)")
+st.markdown("请输入影视作品的英文名。遇到同名冲突时，**直接点击底部参考墙海报即可瞬间切换主视图跑分**。")
+st.caption("🔥 门槛新规 -> 电影最低门槛: 10,000 票 (严防冷门佳作漏网) | 剧集最低门槛: 50,000 票 (极致提纯硬核神剧)")
 
 def fetch_movie_data(user_input, search_type):
     base_url = "http://omdbapi.com"
     
     clean_input = user_input.strip()
-    # 智能识别：如果是点击海报传过来的 tt 身份证号，走 i= 绝对穿透轨道；否则走名字匹配
     if clean_input.lower().startswith("tt"):
         param_core = "?i=" + clean_input
     else:
@@ -51,19 +50,28 @@ def fetch_movie_data(user_input, search_type):
                 "runtime": data.get("Runtime", "暂无数据"), "boxoffice": data.get("BoxOffice", "暂无数据") if not is_series else "N/A"
             }
 
-            vote_threshold = 10000 if is_series else 25000
+            # 🌟 核心调校点：根据你的新标准调整物理拦截门槛
+            vote_threshold = 50000 if is_series else 10000
             if votes < vote_threshold:
-                return {"status": "intercepted", "msg": f"🛑 【强力拦截】 该影视未达到有效投票门槛 (当前投票: {votes:,})", **info_base}
+                return {"status": "intercepted", "msg": f"🛑 【强力拦截】 该影视未达到最新有效投票门槛 (当前投票: {votes:,} | 门槛要求: {vote_threshold:,})", **info_base}
             
             if is_series:
                 try: seasons = int(data.get("totalSeasons", "1"))
                 except: seasons = 1
                 base_score = imdb_rating * 10
                 season_bonus = 2.0 * math.log(seasons) if seasons > 1 else 0.0
-                votes_modifier = 1.5 if votes >= 100000 else (-3.0 if votes < 25000 else 0.0)
+                
+                # 剧集投票修正随着5W门槛同步升轨拉高标准
+                if votes >= 200000:
+                    votes_modifier = 1.5
+                elif votes < 80000:
+                    votes_modifier = -2.5
+                else:
+                    votes_modifier = 0.0
+                    
                 cs_score = base_score + season_bonus + votes_modifier
                 if cs_score > 100.0: cs_score = 100.0
-                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | 总季数: {seasons}季 | 修正: {votes_modifier:+}"
+                log_details = f"IMDb: {imdb_rating} ({votes:,} 票) | 总季数: {seasons}季 | 提纯修正: {votes_modifier:+}"
             else:
                 raw_metascore = data.get("Metascore", "N/A")
                 metascore = 70.0 if raw_metascore == "N/A" else float(raw_metascore)
@@ -94,37 +102,34 @@ def get_other_versions(title):
         pass
     return []
 
-# ==================== 🎛️ 状态双向绑定核心初始化 ====================
+# ==================== 🎛️ 状态初始化 ====================
 if "search_query" not in st.session_state:
     st.session_state["search_query"] = ""
 if "query_version" not in st.session_state:
-    st.session_state["query_version"] = 0  # 动态输入框版本标签
+    st.session_state["query_version"] = 0
 
 search_type = st.radio(
     "🧭 影视类型定位器 (手动切换锁定)：",
     ["自动识别", "只查电影", "只查剧集"], horizontal=True
 )
 
-# 🌟 核心改进点：动态赋能 Key 标签，让网页彻底忘掉之前的旧缓存输入
 movie_input = st.text_input(
-    "请输入电影或电视剧的标准英文名：", 
+    "请输入电影或电视剧的标准英文名或 tt 编号：", 
     value=st.session_state["search_query"],
     key=f"input_box_v_{st.session_state['query_version']}"
 )
 
-# 只要用户手动在框里打字了，立刻接住状态
 if movie_input != st.session_state["search_query"]:
     st.session_state["search_query"] = movie_input
 
 if st.session_state["search_query"]:
     current_target = st.session_state["search_query"].strip()
     
-    with st.spinner("正在连接全网活数据池，执行自适应双轨算法脱水..."):
+    with st.spinner("正在连接全网活数据池，执行自适应新规算法..."):
         res = fetch_movie_data(current_target, search_type)
         
     st.markdown("---")
     
-    # 精准主视图展示区
     if res["status"] in ["success", "intercepted"]:
         layout_col1, layout_col2 = st.columns(2) 
         
@@ -136,7 +141,7 @@ if st.session_state["search_query"]:
                 card_col1, card_col2 = st.columns(2)
                 with card_col1: st.metric(label="📊 最终加权得分", value=f"{res['score']} 分")
                 with card_col2: st.metric(label="🏷️ 精准归类梯队", value=res["tier"])
-                st.success(f"**影视诊断**：该片已成功通过核心算法洗礼，已收入本地数字资产仓储库。")
+                st.success(f"**影视诊断**：该片已成功通过最新高提纯算法洗礼！")
             else:
                 st.error(res["msg"])
             
@@ -159,7 +164,6 @@ if st.session_state["search_query"]:
             if res["status"] == "success":
                 st.caption(f"🔧 **底层数据链监控**：{res['details']}")
                 
-        # 底部追加：多版本同名互动备选墙
         if not current_target.lower().startswith("tt"):
             st.markdown("---")
             st.markdown("### 🗺️ 全网同名其他版本参考墙 (看中哪个，点击下方按钮即可秒切上方主视角)")
@@ -176,10 +180,9 @@ if st.session_state["search_query"]:
                         st.markdown(f"**{item.get('Title')}**")
                         st.caption(f"📅 {item.get('Year')} | {'电影' if item.get('Type')=='movie' else '剧集'}")
                         
-                        # 💡 终极魔改核心：点击时同时更新ID和Version标签，强行撕毁输入框的历史文本缓存！
                         if st.button("🎯 查看此版本跑分", key=f"select_{item.get('imdbID')}"):
                             st.session_state["search_query"] = item.get("imdbID")
-                            st.session_state["query_version"] += 1  # 标签升轨，摧毁旧输入框缓存
+                            st.session_state["query_version"] += 1
                             st.rerun()
             else:
                 st.caption("未在全网探测到其他同名衍生版本。")
